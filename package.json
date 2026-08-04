@@ -5,6 +5,9 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -43,7 +46,7 @@
     "@nestjs/testing": "^10.4.15",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.14",
-    "@types/node": "^20.17.9",
+    "@types/node": "^24.13.3",
     "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",

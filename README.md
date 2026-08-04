@@ -16,7 +16,7 @@ repo). This README only covers running the service locally.
 
 ## Prerequisites
 
-- Node.js 20.x
+- Node.js 24.18.0 (pinned in `.nvmrc` — run `nvm use` if you use nvm)
 - MongoDB running locally (or reachable via `MONGODB_URI`)
 
 ### Installing MongoDB locally (macOS)

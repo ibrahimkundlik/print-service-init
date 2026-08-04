@@ -147,3 +147,15 @@ All discovered against real Epson hardware during the POC (`bill-html.service.ts
 - `.vscode/settings.json` pins `js/ts.tsdk.path` to `node_modules/typescript` — if you
   see `tsconfig.json` compiler-option errors that don't reproduce via `npx tsc`, your
   editor is probably using its own bundled TypeScript instead of the workspace one.
+- Node version is pinned to `24.18.0` via `.nvmrc` (`"engines": { "node": ">=24" }` in
+  `package.json`). Verified against real Node 24: native deps (`sharp`, `esbuild`)
+  reinstalled cleanly and the full render pipeline (CorePrint/esbuild bundling →
+  Puppeteer → sharp raster pack) produces identical output to Node 20.
+- If `dist/` ends up empty after `npm run build` reports success, delete
+  `tsconfig.build.tsbuildinfo` (and `tsconfig.tsbuildinfo`) and rebuild.
+  `nest-cli.json`'s `deleteOutDir: true` wipes `dist/` before every build, but
+  `tsc`'s incremental mode only checks source-file hashes, not whether the previous
+  output still exists — if the cache thinks nothing changed, it skips re-emitting
+  into the now-empty directory. Not Node-version-specific; only bites when `dist/`
+  is removed independently of a source change (a fresh clone never hits this, since
+  the `.tsbuildinfo` files are gitignored).
