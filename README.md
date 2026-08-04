@@ -1,0 +1,109 @@
+# print-service
+
+Cloud printing service for Prime Bills & KOTs. Lets Epson thermal
+printers poll this service directly over HTTPS and print Bills & KOTs — no tablet,
+driver, or app in between.
+
+Full design/rationale lives in `FINAL_SPEC.md` (in the sibling `print-service-dummy`
+repo). This README only covers running the service locally.
+
+## Stack
+
+- TypeScript + NestJS
+- MongoDB (via Mongoose)
+- Puppeteer + `@urbanpiper-engineering/prime-core-js` (CorePrint) for order → bill/KOT
+  HTML → PNG rendering, `sharp` for packing into Epson's mono raster `<image>` format
+
+## Prerequisites
+
+- Node.js 20.x
+- MongoDB running locally (or reachable via `MONGODB_URI`)
+
+### Installing MongoDB locally (macOS)
+
+```bash
+brew tap mongodb/brew
+brew install mongodb-community
+brew services start mongodb/brew/mongodb-community
+```
+
+If `brew services start` fails with a launchctl bootstrap error, run `mongod`
+directly instead:
+
+```bash
+mkdir -p .mongo-data
+mongod --dbpath ./.mongo-data --port 27017 --logpath ./.mongo-data/mongod.log &
+```
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env
+```
+
+`.env` fields:
+
+| Variable          | Purpose                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`     | Mongo connection string                                                                                                                 |
+| `PORT`            | HTTP port (default `6000` — not `3000`, since prime-web already runs there)                                                             |
+| `PUBLIC_BASE_URL` | Base URL printers/ops UI use to reach this service; the SDP `Server1 URL` returned on printer creation is `<PUBLIC_BASE_URL>/api/cloud` |
+
+## Running
+
+```bash
+npm run start:dev   # watch mode
+npm run start        # single run
+npm run build && npm run start:prod   # compiled build
+```
+
+The service listens on `PORT` (default `6000`) with no global route prefix — routes
+are exactly `/api/printers`, `/api/orders`, `/api/jobs/:jobId`, `/api/cloud`.
+
+## Quick smoke test
+
+```bash
+# 1. Register a printer
+curl -s -X POST http://localhost:6000/api/printers \
+  -H "Content-Type: application/json" \
+  -d '{"bizId":"22334455","locationIds":["233632"],"label":"Front Counter","printType":"bill","model":"TM-T88VI"}'
+# -> { "printer": { "_id": "<printerId>", "status": "pending", ... }, "webConfig": { "server1Url": "...", "id": "<printerId>" } }
+
+# 2. Simulate the printer's first poll (flips status pending -> online)
+curl -s -X POST http://localhost:6000/api/cloud \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "ID=<printerId>&ConnectionType=GetRequest"
+
+# 3. Ingest an order (fans out to every matching printer, renders + queues a job)
+curl -s -X POST http://localhost:6000/api/orders \
+  -H "Content-Type: application/json" \
+  -d @order.json
+# -> { "jobIds": ["<jobId>"] }
+
+# 4. Poll again to fetch the rendered ePOS-Print XML for that job
+curl -s -X POST http://localhost:6000/api/cloud \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "ID=<printerId>&ConnectionType=GetRequest"
+
+# 5. Check job status
+curl -s http://localhost:6000/api/jobs/<jobId>
+```
+
+`order.json` needs at minimum `upr_id`, `biz_upr_id`, and `location.id` matching a
+registered printer's `bizId`/`locationIds`, plus a real `data.lines` array (CorePrint
+renders actual line items — an order payload with no lines will fail rendering).
+
+## Module layout
+
+```
+src/
+  Modules/
+    Printers/   # printer provisioning CRUD, offline-staleness sweep
+    Render/      # order -> bill/KOT HTML -> PNG -> packed raster pipeline
+    Prints/      # order ingest/fan-out, job status, expiry sweep
+    Cloud/       # the SDP endpoint itself (GetRequest/SetResponse), device auth guard
+    Logger/      # JSON logger + structured Kibana-bound event logger
+  Config/        # printer capability tables (dot width, max payload size by model)
+  Exceptions/    # ClientException (domain errors -> HTTP status)
+```

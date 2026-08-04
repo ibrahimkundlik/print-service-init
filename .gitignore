@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.DS_Store
+.mongo-data/
+*.tsbuildinfo
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
