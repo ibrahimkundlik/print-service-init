@@ -22,7 +22,6 @@ import { CloudModule } from './Modules/Cloud/cloud.module';
     }),
 
     ScheduleModule.forRoot(),
-
     LoggerModule,
     PrintersModule,
     RenderModule,

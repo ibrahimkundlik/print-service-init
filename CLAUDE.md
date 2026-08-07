@@ -19,6 +19,11 @@ sibling `print-service-dummy` repo, which also holds the original throwaway POC 
 service's rendering logic was ported from). Read that spec before making structural
 changes; this file is a working map of the code as it exists, not a replacement for it.
 
+Epson's own reference manuals for the protocol/XML this service implements are in
+`epson/` (`ePOS-Print API.pdf`, `ePOS-Print XML.pdf`, `Server Direct Print.pdf`) —
+check these for any question about SDP wire behavior, ePOS-Print XML schema/element
+semantics, or printer capability specifics, rather than relying on general knowledge.
+
 ## Commands
 
 ```bash
@@ -151,11 +156,14 @@ All discovered against real Epson hardware during the POC (`bill-html.service.ts
   `package.json`). Verified against real Node 24: native deps (`sharp`, `esbuild`)
   reinstalled cleanly and the full render pipeline (CorePrint/esbuild bundling →
   Puppeteer → sharp raster pack) produces identical output to Node 20.
-- If `dist/` ends up empty after `npm run build` reports success, delete
-  `tsconfig.build.tsbuildinfo` (and `tsconfig.tsbuildinfo`) and rebuild.
-  `nest-cli.json`'s `deleteOutDir: true` wipes `dist/` before every build, but
-  `tsc`'s incremental mode only checks source-file hashes, not whether the previous
-  output still exists — if the cache thinks nothing changed, it skips re-emitting
-  into the now-empty directory. Not Node-version-specific; only bites when `dist/`
-  is removed independently of a source change (a fresh clone never hits this, since
-  the `.tsbuildinfo` files are gitignored).
+- `tsconfig.json` deliberately does **not** set `"incremental": true`, unlike
+  `prime-dr3`'s tsconfig — combined with `nest-cli.json`'s `deleteOutDir: true`, it
+  broke `npm run start:dev` on every restart: `deleteOutDir` wipes `dist/` at watch
+  startup, but a `tsconfig.build.tsbuildinfo` left over from the previous run told
+  `tsc` nothing had changed, so it skipped re-emitting into the now-empty directory
+  — `dist/` would just stay empty until you manually deleted the `.tsbuildinfo`
+  files. Reproduced 100% of the time across repeated `start:dev` restarts before the
+  fix; confirmed clean across three consecutive restarts after removing
+  `incremental`. If a `.tsbuildinfo` file ever reappears (e.g. someone re-adds
+  `incremental` for build-speed reasons), the old workaround still applies: delete
+  `tsconfig.build.tsbuildinfo`/`tsconfig.tsbuildinfo` and rebuild.

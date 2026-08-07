@@ -41,7 +41,6 @@ export class CloudService {
     return this.printsService.buildPrintRequestXml(jobInputs);
   }
 
-  /** `ConnectionType=SetResponse` (§5.3): parse per-job outcomes, record each. */
   async handleSetResponse(
     printer: Printer,
     responseFileXml: string | undefined,

@@ -99,7 +99,7 @@ renders actual line items — an order payload with no lines will fail rendering
 ```
 src/
   Modules/
-    Printers/   # printer provisioning CRUD, offline-staleness sweep
+    Printers/    # printer provisioning CRUD, offline-staleness sweep
     Render/      # order -> bill/KOT HTML -> PNG -> packed raster pipeline
     Prints/      # order ingest/fan-out, job status, expiry sweep
     Cloud/       # the SDP endpoint itself (GetRequest/SetResponse), device auth guard

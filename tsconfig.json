@@ -12,7 +12,6 @@
     "rootDir": "./src",
     "baseUrl": "./",
     "ignoreDeprecations": "5.0",
-    "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": false,
     "noImplicitAny": false,

@@ -30,11 +30,11 @@ export class PrintPayload {
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class Print {
-  @Prop({ type: String, required: true, index: true })
+  @Prop({ type: String, required: true })
   printerId: string;
 
   /** Denormalized from printers.bizId at job-creation time (§4.2). */
-  @Prop({ type: String, required: true, index: true })
+  @Prop({ type: String, required: true })
   bizId: string;
 
   /** Denormalized from the order payload's location.id (§4.2). */
@@ -42,7 +42,7 @@ export class Print {
   locationId: string;
 
   /** The source order's upr_id — ties this job back to the order that generated it. */
-  @Prop({ type: String, required: true, index: true })
+  @Prop({ type: String, required: true })
   orderUprId: string;
 
   /** Copied from the target printer's own printType at job-creation time. */
@@ -78,7 +78,7 @@ export class Print {
   @Prop({ type: Number, required: true, default: 0 })
   retryCount: number;
 
-  @Prop({ type: Date, required: true, index: true })
+  @Prop({ type: Date, required: true })
   expiresAt: Date;
 
   createdAt?: Date;

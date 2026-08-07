@@ -29,7 +29,6 @@ export class createPrinterDto {
   @IsEnum(PrintType)
   printType: PrintType;
 
-  /** Exact physical model — must have an entry in Config/printer-capabilities.ts (§11.1). */
   @IsIn(Object.keys(PRINTER_WIDTH_DOTS))
   model: PrinterModel;
 }

@@ -10,11 +10,6 @@ interface SdpRequestBody {
   ResponseFile?: string;
 }
 
-/**
- * §5.3 — the endpoint the printer itself calls (Epson's Server Direct Print `URL`
- * field). Uses `@Res()` directly since the two `ConnectionType` flows need distinct
- * raw responses: XML body, empty `200`, or a bare acknowledgement.
- */
 @Controller('api/cloud')
 @UseGuards(DeviceAuthGuard)
 export class CloudController {

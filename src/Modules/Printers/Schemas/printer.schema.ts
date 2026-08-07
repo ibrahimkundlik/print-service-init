@@ -32,7 +32,7 @@ export class Printer {
   @Prop({ type: String, required: true })
   _id: string;
 
-  @Prop({ type: String, required: true, index: true })
+  @Prop({ type: String, required: true })
   bizId: string;
 
   @Prop({ type: [String], required: true, default: [] })

@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-/**
- * The minimum event set from FINAL_SPEC.md §12 — structured JSON events shipped to
- * Kibana (via stdout -> Filebeat/Logstash, same pattern as prime-dr3's JsonLogger)
- * instead of a dedicated MongoDB audit-event collection.
- */
 export type PrintEventName =
   | 'job.queued'
   | 'job.delivered'
