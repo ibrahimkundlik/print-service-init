@@ -17,8 +17,8 @@ import { ingestOrderDto } from '../DTO/ingest-order.dto';
 import { getMaxPayloadSizeBytes } from '../../../Config/printer-capabilities';
 
 const MAX_RETRY_COUNT = 3;
-const JOB_TTL_MS = 60 * 60 * 1000; // TODO - Revert to 10 after testing is completed
-const DEFAULT_DEQUEUE_PAGE_SIZE = 10;
+const JOB_TTL_MS = 500 * 60 * 1000; // TODO - Revert to 10 after testing is completed
+const DEFAULT_DEQUEUE_PAGE_SIZE = 10; // TODO - Recheck this once final testing is completed
 const JOBS_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
