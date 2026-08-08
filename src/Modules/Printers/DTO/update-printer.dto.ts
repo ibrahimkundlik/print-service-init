@@ -1,6 +1,7 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsEmail,
   IsEnum,
   IsIn,
   IsNotEmpty,
@@ -14,10 +15,6 @@ import {
   PrinterModel,
 } from '../../../Config/printer-capabilities';
 
-/**
- * `bizId` is deliberately not updatable here — it's the join key fan-out matches
- * against, not something a printer should move between after provisioning.
- */
 export class updatePrinterDto {
   @IsOptional()
   @IsArray()
@@ -36,8 +33,12 @@ export class updatePrinterDto {
   @IsEnum(PrintType, { each: true })
   printType?: PrintType[];
 
-  /** Changing this recalculates and re-persists `printWidthDots` (§11.1). */
   @IsOptional()
   @IsIn(Object.keys(PRINTER_WIDTH_DOTS))
   model?: PrinterModel;
+
+  @IsOptional()
+  @IsArray()
+  @IsEmail({}, { each: true })
+  emails?: string[];
 }

@@ -11,6 +11,7 @@ export enum PrinterStatus {
   Pending = 'pending',
   Online = 'online',
   Offline = 'offline',
+  Archived = 'archived',
 }
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
@@ -47,9 +48,17 @@ export class Printer {
   @Prop({ type: Date })
   lastSeenAt?: Date;
 
-  /** Prime user id (`user.id` from the authorities response) that created this printer. */
-  @Prop({ type: Number, required: true })
-  createdBy: number;
+  @Prop({ type: [String], required: true, default: [] })
+  emails: string[];
+
+  @Prop({ type: String, required: true })
+  createdBy: string;
+
+  @Prop({ type: String })
+  updatedBy?: string;
+
+  @Prop({ type: Date })
+  updatedAt?: Date;
 
   createdAt?: Date;
 }

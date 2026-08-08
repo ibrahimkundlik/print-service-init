@@ -43,7 +43,7 @@ export class AuthService {
           .pipe(
             catchError((error: AxiosError) => {
               this.logger.log('DEBUG :: AuthService Pipe Err', {
-                error: error,
+                error: error?.message,
               });
               throw new UnauthorizedException();
             }),

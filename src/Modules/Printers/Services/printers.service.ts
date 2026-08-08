@@ -7,23 +7,17 @@ import { Printer, PrinterStatus } from '../Schemas/printer.schema';
 import { createPrinterDto } from '../DTO/create-printer.dto';
 import { updatePrinterDto } from '../DTO/update-printer.dto';
 import { listPrintersDto } from '../DTO/list-printers.dto';
+import { archivePrinterDto } from '../DTO/archive-printer.dto';
 import {
   getPrintWidthDots,
   PrinterModel,
 } from '../../../Config/printer-capabilities';
 import { ClientException } from '../../../Exceptions/ClientException';
 
-const PRINTER_ID_LENGTH = 8;
+const PRINTER_ID_LENGTH = 10;
 const MAX_ID_GENERATION_ATTEMPTS = 5;
 const PRINTER_ID_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
-/**
- * How stale `lastSeenAt` has to be before a background sweep flips an `online`
- * printer to `offline` (§4.1). Not derived from any per-printer configured poll
- * interval — that value lives only in WebConfig, never reported back to us — so
- * this is a fixed, generously-sized threshold rather than something computed per
- * device. Adjust here if it proves too aggressive/lax in practice.
- */
 const OFFLINE_THRESHOLD_MS = 60_000;
 
 function generatePrinterId(): string {
@@ -43,14 +37,17 @@ export class PrintersService {
     private readonly printerModel: Model<Printer>,
   ) {}
 
-  /**
-   * §5.2 step 1 — generates `printerId` (becomes `_id`), derives `printWidthDots`
-   * from `model` (§11.1), stores as `status: 'pending'`. `createdBy` is the Prime
-   * user id (`user.id`) that made the request, used later to scope `list()` for
-   * non-admin callers to only the printers they personally added.
-   */
-  async create(dto: createPrinterDto, createdBy: number): Promise<Printer> {
-    const printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
+  async create(dto: createPrinterDto, createdBy: string): Promise<Printer> {
+    let printWidthDots: number;
+    try {
+      printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
+    } catch (err) {
+      throw new ClientException({
+        message: err.message,
+        errorCode: 'INVALID_PRINTER_MODEL',
+        statusCode: 400,
+      });
+    }
 
     for (let attempt = 0; attempt < MAX_ID_GENERATION_ATTEMPTS; attempt++) {
       const _id = generatePrinterId();
@@ -65,6 +62,7 @@ export class PrintersService {
           printWidthDots,
           status: PrinterStatus.Pending,
           createdBy,
+          emails: dto.emails ?? [],
         });
       } catch (err) {
         if (err?.code === 11000) {
@@ -74,54 +72,85 @@ export class PrintersService {
           });
           continue;
         }
-        throw err;
+        throw new ClientException({
+          message: `Failed to create printer: ${err.message}`,
+          errorCode: 'PRINTER_CREATE_FAILED',
+          statusCode: 500,
+        });
       }
     }
 
-    throw new Error(
-      'Failed to generate a unique printerId after multiple attempts',
-    );
+    throw new ClientException({
+      message: 'Failed to generate a unique printerId after multiple attempts',
+      errorCode: 'PRINTER_ID_GENERATION_FAILED',
+      statusCode: 500,
+    });
   }
 
   findById(printerId: string): Promise<Printer | null> {
     return this.printerModel.findById(printerId).exec();
   }
 
-  /**
-   * Prime web decides which filter to send, not this service — admin users pass
-   * `bizId` (every printer on that biz); non-admins pass `locationIds` (only
-   * printers at locations they have access to). Exactly one is expected.
-   */
-  list(dto: listPrintersDto): Promise<Printer[]> {
-    if (dto.bizId !== undefined) {
-      return this.printerModel.find({ bizId: dto.bizId }).exec();
+  async list(dto: listPrintersDto): Promise<Printer[]> {
+    if (dto.bizId === undefined && !dto.locationIds?.length) {
+      throw new ClientException({
+        message: 'Either bizId or locationIds must be provided',
+        errorCode: 'MISSING_LIST_FILTER',
+        statusCode: 400,
+      });
     }
-    if (dto.locationIds?.length) {
-      return this.printerModel
+
+    try {
+      if (dto.bizId !== undefined) {
+        return await this.printerModel.find({ bizId: dto.bizId }).exec();
+      }
+      return await this.printerModel
         .find({ locationIds: { $in: dto.locationIds } })
         .exec();
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to list printers: ${err.message}`,
+        errorCode: 'PRINTER_LIST_FAILED',
+        statusCode: 500,
+      });
     }
-    throw new ClientException({
-      message: 'Either bizId or locationIds must be provided',
-      errorCode: 'MISSING_LIST_FILTER',
-      statusCode: 400,
-    });
   }
 
-  /**
-   * Partial update — `locationIds`/`label`/`printType`/`model` only (`bizId` isn't
-   * updatable, see update-printer.dto.ts). If `model` changes, `printWidthDots` is
-   * recalculated the same way it is on create, rather than left stale.
-   */
-  async update(printerId: string, dto: updatePrinterDto): Promise<Printer> {
-    const update: Partial<Printer> = { ...dto };
+  async update(
+    printerId: string,
+    dto: updatePrinterDto,
+    updatedBy: string,
+  ): Promise<Printer> {
+    const update: Partial<Printer> = {
+      ...dto,
+      updatedBy,
+      updatedAt: new Date(),
+    };
     if (dto.model) {
-      update.printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
+      try {
+        update.printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
+      } catch (err) {
+        throw new ClientException({
+          message: err.message,
+          errorCode: 'INVALID_PRINTER_MODEL',
+          statusCode: 400,
+        });
+      }
     }
 
-    const printer = await this.printerModel
-      .findByIdAndUpdate(printerId, update, { new: true })
-      .exec();
+    let printer: Printer | null;
+    try {
+      printer = await this.printerModel
+        .findByIdAndUpdate(printerId, update, { new: true })
+        .exec();
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to update printer: ${err.message}`,
+        errorCode: 'PRINTER_UPDATE_FAILED',
+        statusCode: 500,
+      });
+    }
+
     if (!printer) {
       throw new ClientException({
         message: `Could not find printer with id: ${printerId}`,
@@ -132,38 +161,52 @@ export class PrintersService {
     return printer;
   }
 
-  /** §6 — "revoke" means delete; there's no separate disabled state. */
-  async remove(printerId: string): Promise<void> {
-    const result = await this.printerModel.findByIdAndDelete(printerId).exec();
-    if (!result) {
+  async archive(
+    printerId: string,
+    dto: archivePrinterDto,
+    updatedBy: string,
+  ): Promise<Printer> {
+    const status = dto.archived
+      ? PrinterStatus.Archived
+      : PrinterStatus.Offline;
+
+    let printer: Printer | null;
+    try {
+      printer = await this.printerModel
+        .findByIdAndUpdate(
+          printerId,
+          { status, updatedBy, updatedAt: new Date() },
+          { new: true },
+        )
+        .exec();
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to archive printer: ${err.message}`,
+        errorCode: 'PRINTER_ARCHIVE_FAILED',
+        statusCode: 500,
+      });
+    }
+
+    if (!printer) {
       throw new ClientException({
         message: `Could not find printer with id: ${printerId}`,
         errorCode: 'PRINTER_NOT_FOUND',
         statusCode: 404,
       });
     }
+    return printer;
   }
 
-  /**
-   * §5.1 fan-out resolution: printers whose bizId matches and whose locationIds
-   * includes the order's location, excluding `pending` printers whose credentials
-   * haven't been confirmed correct yet (both `online` and `offline` are valid
-   * targets — offline just means "hasn't polled recently", not disabled).
-   */
   findFanoutTargets(bizId: number, locationId: number): Promise<Printer[]> {
     return this.printerModel
       .find({
         bizId,
         locationIds: locationId,
-        status: { $ne: PrinterStatus.Pending },
+        status: { $nin: [PrinterStatus.Pending, PrinterStatus.Archived] },
       })
       .exec();
   }
 
-  /**
-   * §5.3 GetRequest handler step 1 — heartbeat. Flips `pending`/`offline` ->
-   * `online` and updates `lastSeenAt`, every poll, empty queue or not.
-   */
   async recordHeartbeat(printerId: string): Promise<void> {
     await this.printerModel
       .findByIdAndUpdate(printerId, {
@@ -173,12 +216,7 @@ export class PrintersService {
       .exec();
   }
 
-  /**
-   * Background staleness sweep (§4.1) — flips `online` printers whose `lastSeenAt`
-   * has fallen behind OFFLINE_THRESHOLD_MS to `offline`. Purely observational;
-   * does not affect whether the printer can still poll successfully.
-   */
-  @Cron(CronExpression.EVERY_30_SECONDS)
+  @Cron(CronExpression.EVERY_MINUTE)
   async markStalePrintersOffline(): Promise<void> {
     const staleBefore = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
     await this.printerModel

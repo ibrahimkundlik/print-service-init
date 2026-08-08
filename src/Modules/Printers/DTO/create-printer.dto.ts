@@ -1,10 +1,12 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsEmail,
   IsEnum,
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
 } from 'class-validator';
 import { PrintType } from '../Schemas/printer.schema';
@@ -33,4 +35,9 @@ export class createPrinterDto {
 
   @IsIn(Object.keys(PRINTER_WIDTH_DOTS))
   model: PrinterModel;
+
+  @IsOptional()
+  @IsArray()
+  @IsEmail({}, { each: true })
+  emails?: string[];
 }
