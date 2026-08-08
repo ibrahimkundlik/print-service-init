@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Model } from 'mongoose';
 import { Print, PrintJobStatus } from '../Schemas/print.schema';
-import { Printer } from '../../Printers/Schemas/printer.schema';
+import { Printer, PrintType } from '../../Printers/Schemas/printer.schema';
 import { PrintersService } from '../../Printers/Services/printers.service';
 import { BillRenderService } from '../../Render/Services/bill-render.service';
 import {
@@ -46,14 +46,15 @@ export class PrintsService {
   ) {}
 
   /**
-   * §5.1 — resolves fan-out targets, renders+packs once per target printer, and
-   * queues one `prints` doc per match. Rendering happens synchronously inline with
-   * the request per §9.3's explicit "do not defer this to a background worker in
-   * v1" call.
+   * §5.1 — resolves fan-out targets, renders+packs once per (printer, printType)
+   * pair — a printer with `printType: ['bill', 'kot']` gets one job per type, since
+   * it needs both artifacts rendered for the same order — and queues one `prints`
+   * doc per pair. Rendering happens synchronously inline with the request per
+   * §9.3's explicit "do not defer this to a background worker in v1" call.
    */
   async ingestOrder(order: ingestOrderDto): Promise<string[]> {
-    const bizId = order.biz_upr_id;
-    const locationId = String(order.location.id);
+    const bizId = Number(order.biz_upr_id);
+    const locationId = Number(order.location.id);
     const orderUprId = order.upr_id;
 
     const targets = await this.printersService.findFanoutTargets(
@@ -70,14 +71,17 @@ export class PrintsService {
 
     const jobIds: string[] = [];
     for (const printer of targets) {
-      const jobId = await this.renderAndQueueForPrinter(
-        printer,
-        order,
-        orderUprId,
-        bizId,
-        locationId,
-      );
-      jobIds.push(jobId);
+      for (const printType of printer.printType) {
+        const jobId = await this.renderAndQueueForPrinter(
+          printer,
+          printType,
+          order,
+          orderUprId,
+          bizId,
+          locationId,
+        );
+        jobIds.push(jobId);
+      }
     }
 
     return jobIds;
@@ -85,22 +89,23 @@ export class PrintsService {
 
   private async renderAndQueueForPrinter(
     printer: Printer,
+    printType: PrintType,
     order: ingestOrderDto,
     orderUprId: string,
-    bizId: string,
-    locationId: string,
+    bizId: number,
+    locationId: number,
   ): Promise<string> {
     let packed;
     try {
       packed = await this.billRenderService.renderAndPack(
         order,
-        printer.printType,
+        printType,
         printer.printWidthDots,
         `Order ${orderUprId}`,
       );
     } catch (err) {
       throw new ClientException({
-        message: `Failed to render order ${orderUprId} for printer ${printer._id}: ${err.message}`,
+        message: `Failed to render order ${orderUprId} for printer ${printer._id} (${printType}): ${err.message}`,
         errorCode: 'RENDER_FAILED',
         statusCode: 400,
       });
@@ -111,7 +116,7 @@ export class PrintsService {
       bizId,
       locationId,
       orderUprId,
-      type: printer.printType,
+      type: printType,
       payload: {
         packedBase64: packed.base64,
         widthPx: packed.widthPx,
@@ -127,6 +132,7 @@ export class PrintsService {
       bizId,
       locationId,
       orderUprId,
+      type: printType,
     });
 
     return String(doc._id);
@@ -236,7 +242,9 @@ export class PrintsService {
     const jobId = printjobid.split('-copy')[0];
     const doc = await this.printModel.findById(jobId).exec();
     if (!doc) {
-      this.logger.warn(`SetResponse for unknown printjobid: ${printjobid}`);
+      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+        message: `SetResponse for unknown printjobid: ${printjobid}`,
+      });
       return;
     }
 

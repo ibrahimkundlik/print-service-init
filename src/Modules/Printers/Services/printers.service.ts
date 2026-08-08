@@ -5,15 +5,17 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Model } from 'mongoose';
 import { Printer, PrinterStatus } from '../Schemas/printer.schema';
 import { createPrinterDto } from '../DTO/create-printer.dto';
+import { updatePrinterDto } from '../DTO/update-printer.dto';
+import { listPrintersDto } from '../DTO/list-printers.dto';
 import {
   getPrintWidthDots,
   PrinterModel,
 } from '../../../Config/printer-capabilities';
 import { ClientException } from '../../../Exceptions/ClientException';
 
-const PRINTER_ID_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const PRINTER_ID_LENGTH = 8;
 const MAX_ID_GENERATION_ATTEMPTS = 5;
+const PRINTER_ID_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /**
  * How stale `lastSeenAt` has to be before a background sweep flips an `online`
@@ -43,9 +45,11 @@ export class PrintersService {
 
   /**
    * §5.2 step 1 — generates `printerId` (becomes `_id`), derives `printWidthDots`
-   * from `model` (§11.1), stores as `status: 'pending'`.
+   * from `model` (§11.1), stores as `status: 'pending'`. `createdBy` is the Prime
+   * user id (`user.id`) that made the request, used later to scope `list()` for
+   * non-admin callers to only the printers they personally added.
    */
-  async create(dto: createPrinterDto): Promise<Printer> {
+  async create(dto: createPrinterDto, createdBy: number): Promise<Printer> {
     const printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
 
     for (let attempt = 0; attempt < MAX_ID_GENERATION_ATTEMPTS; attempt++) {
@@ -60,13 +64,13 @@ export class PrintersService {
           model: dto.model,
           printWidthDots,
           status: PrinterStatus.Pending,
+          createdBy,
         });
       } catch (err) {
         if (err?.code === 11000) {
-          // _id collision — astronomically unlikely at 8 chars, but retry with a
-          // fresh id rather than fail the request (§4.1).
-          this.logger.warn('printerId collision on insert, regenerating', {
+          this.logger.log('DEBUG :: PrintersService createPrinterDto', {
             attempt,
+            message: 'printerId collision on insert ... regenerating _id',
           });
           continue;
         }
@@ -83,9 +87,49 @@ export class PrintersService {
     return this.printerModel.findById(printerId).exec();
   }
 
-  list(bizId?: string): Promise<Printer[]> {
-    const filter = bizId ? { bizId } : {};
-    return this.printerModel.find(filter).exec();
+  /**
+   * Prime web decides which filter to send, not this service — admin users pass
+   * `bizId` (every printer on that biz); non-admins pass `locationIds` (only
+   * printers at locations they have access to). Exactly one is expected.
+   */
+  list(dto: listPrintersDto): Promise<Printer[]> {
+    if (dto.bizId !== undefined) {
+      return this.printerModel.find({ bizId: dto.bizId }).exec();
+    }
+    if (dto.locationIds?.length) {
+      return this.printerModel
+        .find({ locationIds: { $in: dto.locationIds } })
+        .exec();
+    }
+    throw new ClientException({
+      message: 'Either bizId or locationIds must be provided',
+      errorCode: 'MISSING_LIST_FILTER',
+      statusCode: 400,
+    });
+  }
+
+  /**
+   * Partial update — `locationIds`/`label`/`printType`/`model` only (`bizId` isn't
+   * updatable, see update-printer.dto.ts). If `model` changes, `printWidthDots` is
+   * recalculated the same way it is on create, rather than left stale.
+   */
+  async update(printerId: string, dto: updatePrinterDto): Promise<Printer> {
+    const update: Partial<Printer> = { ...dto };
+    if (dto.model) {
+      update.printWidthDots = getPrintWidthDots(dto.model as PrinterModel);
+    }
+
+    const printer = await this.printerModel
+      .findByIdAndUpdate(printerId, update, { new: true })
+      .exec();
+    if (!printer) {
+      throw new ClientException({
+        message: `Could not find printer with id: ${printerId}`,
+        errorCode: 'PRINTER_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+    return printer;
   }
 
   /** §6 — "revoke" means delete; there's no separate disabled state. */
@@ -106,7 +150,7 @@ export class PrintersService {
    * haven't been confirmed correct yet (both `online` and `offline` are valid
    * targets — offline just means "hasn't polled recently", not disabled).
    */
-  findFanoutTargets(bizId: string, locationId: string): Promise<Printer[]> {
+  findFanoutTargets(bizId: number, locationId: number): Promise<Printer[]> {
     return this.printerModel
       .find({
         bizId,

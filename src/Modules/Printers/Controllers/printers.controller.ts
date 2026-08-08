@@ -2,31 +2,66 @@ import {
   Body,
   Controller,
   Delete,
-  Get,
-  NotFoundException,
+  HttpCode,
+  HttpStatus,
   Param,
+  Patch,
   Post,
-  Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { PrintersService } from '../Services/printers.service';
 import { createPrinterDto } from '../DTO/create-printer.dto';
+import { updatePrinterDto } from '../DTO/update-printer.dto';
+import { listPrintersDto } from '../DTO/list-printers.dto';
+import { AuthGuard } from '../../Auth/Guards/auth.guard';
 
 /**
- * Admin CRUD for printer provisioning (§5.2). Not called by the printer itself —
- * that's the Cloud module (§5.3).
+ * The shape of Prime's `/users/authorities/v2` response, as attached to
+ * `request.user` by AuthGuard (see auth.service.ts). Prime wraps its own
+ * response in a top-level `data` key (`{"data": {"user": {...}}}`), and
+ * `AuthService.getPrimeUserDetails` returns that envelope as-is (mirrors
+ * prime-dr3, which does the same `data.user` unwrap at every call site) — so
+ * `request.user` is this whole envelope, not the user object directly.
+ *
+ * Mirrors prime-dr3's own usage of this endpoint: AuthGuard only answers "is
+ * this a valid, currently-logged-in Prime user, yes or no" — it doesn't drive
+ * any authorization decisions here. `id` is the one field still read (for
+ * `createdBy` on create); admin-vs-non-admin filtering for `list()` is decided
+ * by Prime web itself and passed in the request body instead (see
+ * list-printers.dto.ts).
+ */
+interface PrimeAuthoritiesResponse {
+  data: {
+    user: {
+      id: number;
+      [key: string]: unknown;
+    };
+  };
+}
+
+function getPrimeUser(
+  request: Request,
+): PrimeAuthoritiesResponse['data']['user'] {
+  return (request as Request & { user: PrimeAuthoritiesResponse }).user.data
+    .user;
+}
+
+/**
+ * Admin CRUD for printer provisioning. Every route requires a valid Prime bearer
+ * token (AuthGuard) — not called by the printer itself, that's the Cloud module's
+ * separate DeviceAuthGuard.
  */
 @Controller('api/printers')
+@UseGuards(AuthGuard)
 export class PrintersController {
   constructor(private readonly printersService: PrintersService) {}
 
-  /**
-   * Create a printer record. Returns everything the ops UI needs to display for
-   * copy-paste into WebConfig (§5.2 step 2): the shared Server1 URL and the
-   * generated `printerId` (entered as WebConfig's ID field, alone — no password).
-   */
   @Post()
-  async create(@Body() body: createPrinterDto) {
-    const printer = await this.printersService.create(body);
+  async create(@Body() body: createPrinterDto, @Req() request: Request) {
+    const user = getPrimeUser(request);
+    const printer = await this.printersService.create(body, user.id);
     const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? '';
 
     return {
@@ -38,23 +73,25 @@ export class PrintersController {
     };
   }
 
-  @Get()
-  list(@Query('bizId') bizId?: string) {
-    return this.printersService.list(bizId);
+  /**
+   * POST (not GET) since Prime web needs to send a body: `bizId` for admin
+   * users (every printer on that biz) or `locationIds` for non-admins (only
+   * printers at locations they have access to) — see list-printers.dto.ts.
+   */
+  @Post('list')
+  @HttpCode(HttpStatus.OK)
+  list(@Body() body: listPrintersDto) {
+    return this.printersService.list(body);
   }
 
-  @Get(':printerId')
-  async getOne(@Param('printerId') printerId: string) {
-    const printer = await this.printersService.findById(printerId);
-    if (!printer) {
-      throw new NotFoundException(
-        `Could not find printer with id: ${printerId}`,
-      );
-    }
-    return printer;
+  @Patch(':printerId')
+  update(
+    @Param('printerId') printerId: string,
+    @Body() body: updatePrinterDto,
+  ) {
+    return this.printersService.update(printerId, body);
   }
 
-  /** §6 — there's no separate revoked state; deleting is how you stop a printer polling. */
   @Delete(':printerId')
   remove(@Param('printerId') printerId: string) {
     return this.printersService.remove(printerId);

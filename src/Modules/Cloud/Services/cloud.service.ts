@@ -46,9 +46,9 @@ export class CloudService {
     responseFileXml: string | undefined,
   ): Promise<void> {
     if (!responseFileXml) {
-      this.logger.warn(
-        `SetResponse with no ResponseFile from printer ${printer._id}`,
-      );
+      this.logger.log('DEBUG :: CloudService handleSetResponse', {
+        message: `SetResponse with no ResponseFile from printer ${printer._id}`,
+      });
       return;
     }
 

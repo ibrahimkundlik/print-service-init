@@ -5,6 +5,7 @@ import {
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
 } from 'class-validator';
 import { PrintType } from '../Schemas/printer.schema';
@@ -13,24 +14,30 @@ import {
   PrinterModel,
 } from '../../../Config/printer-capabilities';
 
-export class createPrinterDto {
-  @IsNumber()
-  bizId: number;
-
+/**
+ * `bizId` is deliberately not updatable here — it's the join key fan-out matches
+ * against, not something a printer should move between after provisioning.
+ */
+export class updatePrinterDto {
+  @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
   @IsNumber({}, { each: true })
-  locationIds: number[];
+  locationIds?: number[];
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  label: string;
+  label?: string;
 
+  @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
   @IsEnum(PrintType, { each: true })
-  printType: PrintType[];
+  printType?: PrintType[];
 
+  /** Changing this recalculates and re-persists `printWidthDots` (§11.1). */
+  @IsOptional()
   @IsIn(Object.keys(PRINTER_WIDTH_DOTS))
-  model: PrinterModel;
+  model?: PrinterModel;
 }
