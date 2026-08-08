@@ -6,6 +6,7 @@ import { JobsController } from './Controllers/jobs.controller';
 import { PrintsService } from './Services/prints.service';
 import { PrintersModule } from '../Printers/printers.module';
 import { RenderModule } from '../Render/render.module';
+import { AuthModule } from '../Auth/auth.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { RenderModule } from '../Render/render.module';
     ),
     PrintersModule,
     RenderModule,
+    AuthModule,
   ],
   controllers: [OrdersController, JobsController],
   providers: [PrintsService],

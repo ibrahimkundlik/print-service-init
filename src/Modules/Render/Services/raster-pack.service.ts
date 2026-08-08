@@ -1,10 +1,13 @@
 import * as sharp from 'sharp';
 import { Injectable } from '@nestjs/common';
+import { EPOS_PRINT_XML_OVERHEAD_BYTES } from './epos-xml-builder.service';
 
 export interface PackedRaster {
   base64: string;
   widthPx: number;
   heightPx: number;
+  /** `base64.length` + the fixed `<ePOSPrint>` markup overhead — see epos-xml-builder.service.ts. */
+  sizeBytes: number;
 }
 
 /**
@@ -45,11 +48,13 @@ export class RasterPackService {
       .toBuffer({ resolveWithObject: true });
 
     const packed = packMono(data, info.width, info.height);
+    const base64 = packed.toString('base64');
 
     return {
-      base64: packed.toString('base64'),
+      base64,
       widthPx: info.width,
       heightPx: info.height,
+      sizeBytes: base64.length + EPOS_PRINT_XML_OVERHEAD_BYTES,
     };
   }
 }

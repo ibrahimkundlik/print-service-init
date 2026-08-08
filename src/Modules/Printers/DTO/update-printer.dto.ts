@@ -11,7 +11,7 @@ import {
 } from 'class-validator';
 import { PrintType } from '../Schemas/printer.schema';
 import {
-  PRINTER_WIDTH_DOTS,
+  PRINTER_DETAILS,
   PrinterModel,
 } from '../../../Config/printer-capabilities';
 
@@ -34,7 +34,7 @@ export class updatePrinterDto {
   printType?: PrintType[];
 
   @IsOptional()
-  @IsIn(Object.keys(PRINTER_WIDTH_DOTS))
+  @IsIn(Object.keys(PRINTER_DETAILS))
   model?: PrinterModel;
 
   @IsOptional()

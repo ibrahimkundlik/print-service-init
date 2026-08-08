@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Model } from 'mongoose';
-import { Print, PrintJobStatus } from '../Schemas/print.schema';
+import { Print, PrintDocument, PrintJobStatus } from '../Schemas/print.schema';
 import { Printer, PrintType } from '../../Printers/Schemas/printer.schema';
 import { PrintersService } from '../../Printers/Services/printers.service';
 import { BillRenderService } from '../../Render/Services/bill-render.service';
@@ -12,25 +12,14 @@ import {
 } from '../../Render/Services/epos-xml-builder.service';
 import { ClientException } from '../../../Exceptions/ClientException';
 import { EventLoggerService } from '../../Logger/event-logger.service';
+import { LogEvents } from '../../Logger/logger.constants';
 import { ingestOrderDto } from '../DTO/ingest-order.dto';
 import { getMaxPayloadSizeBytes } from '../../../Config/printer-capabilities';
 
-/**
- * How long a queued job stays eligible for delivery before the expiry sweep (§7)
- * marks it `expired`. Not a number FINAL_SPEC.md pins down; chosen as a generous but
- * bounded window for a same-order-day print job, in the same spirit as
- * OFFLINE_THRESHOLD_MS in printers.service.ts.
- */
-const JOB_TTL_MS = 15 * 60 * 1000;
-
-/**
- * Cap on `retryCount` before a failed SetResponse stops re-queuing a job (§5.3:
- * "re-queue for retry ... unless ... already been retried past a configured max").
- * Not itself numerically specified, so fixed here as an operational constant.
- */
 const MAX_RETRY_COUNT = 3;
-
-const DEFAULT_DEQUEUE_PAGE_SIZE = 20;
+const JOB_TTL_MS = 60 * 60 * 1000; // TODO - Revert to 10 after testing is completed
+const DEFAULT_DEQUEUE_PAGE_SIZE = 10;
+const JOBS_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class PrintsService {
@@ -45,34 +34,34 @@ export class PrintsService {
     private readonly eventLogger: EventLoggerService,
   ) {}
 
-  /**
-   * §5.1 — resolves fan-out targets, renders+packs once per (printer, printType)
-   * pair — a printer with `printType: ['bill', 'kot']` gets one job per type, since
-   * it needs both artifacts rendered for the same order — and queues one `prints`
-   * doc per pair. Rendering happens synchronously inline with the request per
-   * §9.3's explicit "do not defer this to a background worker in v1" call.
-   */
-  async ingestOrder(order: ingestOrderDto): Promise<string[]> {
+  async ingestOrder(order: ingestOrderDto): Promise<void> {
     const bizId = Number(order.biz_upr_id);
+    const orderUprId = Number(order.upr_id);
     const locationId = Number(order.location.id);
-    const orderUprId = order.upr_id;
 
-    const targets = await this.printersService.findFanoutTargets(
-      bizId,
-      locationId,
-    );
-    if (targets.length === 0) {
+    let targets: Printer[];
+    try {
+      targets = await this.printersService.findFanoutTargets(bizId, locationId);
+    } catch (err) {
       throw new ClientException({
-        message: `No active printers registered for bizId=${bizId} locationId=${locationId}`,
-        errorCode: 'NO_PRINTERS_FOR_ORDER',
-        statusCode: 404,
+        message: `Failed to resolve printers for bizId=${bizId} locationId=${locationId}: ${err.message}`,
+        errorCode: 'PRINTER_LOOKUP_FAILED',
+        statusCode: 500,
       });
     }
 
-    const jobIds: string[] = [];
+    if (targets.length === 0) {
+      this.eventLogger.logEvent(LogEvents.NO_PRINTERS, {
+        bizId,
+        locationId,
+        orderUprId,
+      });
+      return;
+    }
+
     for (const printer of targets) {
       for (const printType of printer.printType) {
-        const jobId = await this.renderAndQueueForPrinter(
+        await this.renderAndQueueForPrinter(
           printer,
           printType,
           order,
@@ -80,21 +69,18 @@ export class PrintsService {
           bizId,
           locationId,
         );
-        jobIds.push(jobId);
       }
     }
-
-    return jobIds;
   }
 
   private async renderAndQueueForPrinter(
     printer: Printer,
     printType: PrintType,
     order: ingestOrderDto,
-    orderUprId: string,
+    orderUprId: number,
     bizId: number,
     locationId: number,
-  ): Promise<string> {
+  ): Promise<void> {
     let packed;
     try {
       packed = await this.billRenderService.renderAndPack(
@@ -104,6 +90,15 @@ export class PrintsService {
         `Order ${orderUprId}`,
       );
     } catch (err) {
+      this.eventLogger.logEvent(LogEvents.RENDER_FAILED, {
+        printerId: printer._id,
+        bizId,
+        locationId,
+        orderUprId,
+        type: printType,
+        error: err.message,
+      });
+
       throw new ClientException({
         message: `Failed to render order ${orderUprId} for printer ${printer._id} (${printType}): ${err.message}`,
         errorCode: 'RENDER_FAILED',
@@ -111,22 +106,32 @@ export class PrintsService {
       });
     }
 
-    const doc = await this.printModel.create({
-      printerId: printer._id,
-      bizId,
-      locationId,
-      orderUprId,
-      type: printType,
-      payload: {
-        packedBase64: packed.base64,
-        widthPx: packed.widthPx,
-        heightPx: packed.heightPx,
-      },
-      status: PrintJobStatus.Queued,
-      expiresAt: new Date(Date.now() + JOB_TTL_MS),
-    });
+    let doc: PrintDocument;
+    try {
+      doc = await this.printModel.create({
+        printerId: printer._id,
+        bizId,
+        locationId,
+        orderUprId,
+        type: printType,
+        payload: {
+          widthPx: packed.widthPx,
+          heightPx: packed.heightPx,
+          packedBase64: packed.base64,
+          sizeBytes: packed.sizeBytes,
+        },
+        status: PrintJobStatus.Queued,
+        expiresAt: new Date(Date.now() + JOB_TTL_MS),
+      });
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to queue print job for order ${orderUprId} (printer ${printer._id}): ${err.message}`,
+        errorCode: 'PRINT_JOB_CREATE_FAILED',
+        statusCode: 500,
+      });
+    }
 
-    this.eventLogger.logEvent('job.queued', {
+    this.eventLogger.logEvent(LogEvents.JOB_QUEUED, {
       jobId: String(doc._id),
       printerId: printer._id,
       bizId,
@@ -134,55 +139,65 @@ export class PrintsService {
       orderUprId,
       type: printType,
     });
-
-    return String(doc._id);
   }
 
-  async getJobStatus(jobId: string): Promise<Print> {
-    const doc = await this.printModel.findById(jobId).exec();
-    if (!doc) {
+  async getAllJobsForPrinter(printerId: string): Promise<Print[]> {
+    const since = new Date(Date.now() - JOBS_LOOKBACK_MS);
+    try {
+      return await this.printModel
+        .find({ printerId, createdAt: { $gte: since } })
+        .sort({ createdAt: -1 })
+        .exec();
+    } catch (err) {
       throw new ClientException({
-        message: `Could not find print job with id: ${jobId}`,
-        errorCode: 'JOB_NOT_FOUND',
-        statusCode: 404,
+        message: `Failed to fetch jobs for printer ${printerId}: ${err.message}`,
+        errorCode: 'JOBS_LOOKUP_FAILED',
+        statusCode: 500,
       });
     }
-    return doc;
   }
 
-  /**
-   * §5.3 GetRequest handler steps 2-4: fetch queued jobs for this printer, cap the
-   * page at the printer model's max payload size (§8 — "if the page's rendered XML
-   * would exceed that, reduce the page size for that response rather than sending
-   * an oversized payload"; anything trimmed stays `queued` for the next poll),
-   * expand what's left into N `<ePOSPrint>` job-inputs (one per `copies`, unique
-   * printjobid per copy per §9.1/§9.4), mark those docs `delivered`, and log the
-   * delivery.
-   */
   async dequeueForPrinter(
     printer: Printer,
     pageSize = DEFAULT_DEQUEUE_PAGE_SIZE,
   ): Promise<EposPrintJobInput[]> {
-    const docs = await this.printModel
-      .find({
-        printerId: printer._id,
-        status: PrintJobStatus.Queued,
-        expiresAt: { $gt: new Date() },
-      })
-      .sort({ createdAt: 1 })
-      .limit(pageSize)
-      .exec();
+    let docs: PrintDocument[];
+    try {
+      docs = await this.printModel
+        .find({
+          printerId: printer._id,
+          status: PrintJobStatus.Queued,
+          expiresAt: { $gt: new Date() },
+        })
+        .sort({ createdAt: 1 })
+        .limit(pageSize)
+        .exec();
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to dequeue jobs for printer ${printer._id}: ${err.message}`,
+        errorCode: 'JOB_DEQUEUE_FAILED',
+        statusCode: 500,
+      });
+    }
 
     if (docs.length === 0) {
       return [];
     }
 
-    const maxPayloadBytes = getMaxPayloadSizeBytes();
+    let maxPayloadBytes: number;
+    try {
+      maxPayloadBytes = getMaxPayloadSizeBytes(printer.model);
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to dequeue jobs for printer ${printer._id}: ${err.message}`,
+        errorCode: 'JOB_DEQUEUE_FAILED',
+        statusCode: 500,
+      });
+    }
     const selectedDocs: typeof docs = [];
     let cumulativeBytes = 0;
     for (const doc of docs) {
-      const docBytes =
-        Math.ceil((doc.payload.packedBase64.length * 3) / 4) * doc.copies;
+      const docBytes = doc.payload.sizeBytes;
       if (
         selectedDocs.length > 0 &&
         cumulativeBytes + docBytes > maxPayloadBytes
@@ -193,29 +208,31 @@ export class PrintsService {
       cumulativeBytes += docBytes;
     }
 
-    const jobInputs: EposPrintJobInput[] = [];
-    for (const doc of selectedDocs) {
-      for (let copy = 1; copy <= doc.copies; copy++) {
-        jobInputs.push({
-          printjobid:
-            doc.copies > 1 ? `${doc._id}-copy${copy}` : String(doc._id),
-          packedBase64: doc.payload.packedBase64,
-          widthPx: doc.payload.widthPx,
-          heightPx: doc.payload.heightPx,
-        });
-      }
-    }
+    const jobInputs: EposPrintJobInput[] = selectedDocs.map((doc) => ({
+      printjobid: String(doc._id),
+      packedBase64: doc.payload.packedBase64,
+      widthPx: doc.payload.widthPx,
+      heightPx: doc.payload.heightPx,
+    }));
 
     const jobIds = selectedDocs.map((doc) => String(doc._id));
-    await this.printModel
-      .updateMany(
-        { _id: { $in: jobIds } },
-        { status: PrintJobStatus.Delivered },
-      )
-      .exec();
+    try {
+      await this.printModel
+        .updateMany(
+          { _id: { $in: jobIds } },
+          { status: PrintJobStatus.Delivered },
+        )
+        .exec();
+    } catch (err) {
+      throw new ClientException({
+        message: `Failed to mark jobs delivered for printer ${printer._id}: ${err.message}`,
+        errorCode: 'JOB_DELIVERY_UPDATE_FAILED',
+        statusCode: 500,
+      });
+    }
 
     for (const jobId of jobIds) {
-      this.eventLogger.logEvent('job.delivered', {
+      this.eventLogger.logEvent(LogEvents.JOB_DELIVERED, {
         jobId,
         printerId: printer._id,
       });
@@ -228,19 +245,23 @@ export class PrintsService {
     return this.eposXmlBuilderService.buildPrintRequestInfo(jobInputs);
   }
 
-  /**
-   * §5.3 SetResponse handler — `printjobid` may carry a `-copyN` suffix (§9.4);
-   * strip it back to the source doc's `_id` before recording the outcome. On
-   * failure, re-queues up to MAX_RETRY_COUNT (the `retryCount` judgment call
-   * documented in print.schema.ts).
-   */
   async recordSetResponseOutcome(
     printjobid: string,
     success: boolean,
     failureCode?: string,
   ): Promise<void> {
     const jobId = printjobid.split('-copy')[0];
-    const doc = await this.printModel.findById(jobId).exec();
+
+    let doc: PrintDocument | null;
+    try {
+      doc = await this.printModel.findById(jobId).exec();
+    } catch (err) {
+      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+        message: `Failed to look up printjobid ${printjobid}: ${err.message}`,
+      });
+      return;
+    }
+
     if (!doc) {
       this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
         message: `SetResponse for unknown printjobid: ${printjobid}`,
@@ -248,59 +269,76 @@ export class PrintsService {
       return;
     }
 
-    if (success) {
-      doc.status = PrintJobStatus.Success;
-      doc.failureCode = null;
-      await doc.save();
-      this.eventLogger.logEvent('job.success', {
-        jobId,
-        printerId: doc.printerId,
-      });
-      return;
-    }
+    try {
+      if (success) {
+        doc.status = PrintJobStatus.Success;
+        doc.failureCode = null;
+        await doc.save();
+        this.eventLogger.logEvent(LogEvents.JOB_SUCCESS, {
+          jobId,
+          printerId: doc.printerId,
+        });
+        return;
+      }
 
-    doc.failureCode = failureCode ?? 'UNKNOWN';
-    if (doc.retryCount < MAX_RETRY_COUNT) {
-      doc.retryCount += 1;
-      doc.status = PrintJobStatus.Queued;
-      await doc.save();
-      this.eventLogger.logEvent('job.retried', {
-        jobId,
-        printerId: doc.printerId,
-        retryCount: doc.retryCount,
-        failureCode: doc.failureCode,
-      });
-    } else {
-      doc.status = PrintJobStatus.Failed;
-      await doc.save();
-      this.eventLogger.logEvent('job.failed', {
-        jobId,
-        printerId: doc.printerId,
-        failureCode: doc.failureCode,
+      doc.failureCode = failureCode ?? 'UNKNOWN';
+      if (doc.retryCount < MAX_RETRY_COUNT) {
+        doc.retryCount += 1;
+        doc.status = PrintJobStatus.Queued;
+        await doc.save();
+        this.eventLogger.logEvent(LogEvents.JOB_RETRIED, {
+          jobId,
+          printerId: doc.printerId,
+          retryCount: doc.retryCount,
+          failureCode: doc.failureCode,
+        });
+      } else {
+        doc.status = PrintJobStatus.Failed;
+        await doc.save();
+        this.eventLogger.logEvent(LogEvents.JOB_FAILED, {
+          jobId,
+          printerId: doc.printerId,
+          failureCode: doc.failureCode,
+        });
+      }
+    } catch (err) {
+      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+        message: `Failed to persist outcome for printjobid ${printjobid}: ${err.message}`,
       });
     }
   }
 
-  /** Background sweep (§4.2/§7) — queued jobs past `expiresAt` are marked `expired`. */
   @Cron(CronExpression.EVERY_MINUTE)
   async expireStaleJobs(): Promise<void> {
-    const staleDocs = await this.printModel
-      .find({ status: PrintJobStatus.Queued, expiresAt: { $lte: new Date() } })
-      .exec();
+    try {
+      const staleDocs = await this.printModel
+        .find({
+          status: PrintJobStatus.Queued,
+          expiresAt: { $lte: new Date() },
+        })
+        .exec();
 
-    if (staleDocs.length === 0) {
-      return;
-    }
+      if (staleDocs.length === 0) {
+        return;
+      }
 
-    const jobIds = staleDocs.map((doc) => String(doc._id));
-    await this.printModel
-      .updateMany({ _id: { $in: jobIds } }, { status: PrintJobStatus.Expired })
-      .exec();
+      const jobIds = staleDocs.map((doc) => String(doc._id));
+      await this.printModel
+        .updateMany(
+          { _id: { $in: jobIds } },
+          { status: PrintJobStatus.Expired },
+        )
+        .exec();
 
-    for (const doc of staleDocs) {
-      this.eventLogger.logEvent('job.expired', {
-        jobId: String(doc._id),
-        printerId: doc.printerId,
+      for (const doc of staleDocs) {
+        this.eventLogger.logEvent(LogEvents.JOB_EXPIRED, {
+          jobId: String(doc._id),
+          printerId: doc.printerId,
+        });
+      }
+    } catch (err) {
+      this.logger.log('DEBUG :: PrintsService expireStaleJobs', {
+        message: `Failed to expire stale jobs: ${err.message}`,
       });
     }
   }

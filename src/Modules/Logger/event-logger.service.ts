@@ -1,23 +1,18 @@
 import { Injectable } from '@nestjs/common';
+import { LogEvents } from './logger.constants';
 
-export type PrintEventName =
-  | 'job.queued'
-  | 'job.delivered'
-  | 'job.success'
-  | 'job.failed'
-  | 'job.retried'
-  | 'job.expired'
-  | 'printer.heartbeat'
-  | 'queue.depth';
+const LOG_TYPE = 'global_log';
+export type LogEventName = (typeof LogEvents)[keyof typeof LogEvents];
 
 @Injectable()
 export class EventLoggerService {
-  logEvent(event: PrintEventName, fields: Record<string, unknown>): void {
+  logEvent(event: LogEventName, fields: Record<string, unknown>): void {
     const logData = {
-      datetime: new Date().toISOString(),
-      level: 'info',
       event,
-      ...fields,
+      level: 'info',
+      logType: LOG_TYPE,
+      datetime: new Date().toISOString(),
+      ...(fields || {}),
     };
     console.log(JSON.stringify(logData));
   }

@@ -1,14 +1,15 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { PrintsService } from '../Services/prints.service';
 import { Print } from '../Schemas/print.schema';
+import { AuthGuard } from '../../Auth/Guards/auth.guard';
 
 @Controller('api/jobs')
+@UseGuards(AuthGuard)
 export class JobsController {
   constructor(private readonly printsService: PrintsService) {}
 
-  /** §5.4 — unchanged from earlier spec revisions, still `/api/jobs/:jobId`. */
-  @Get(':jobId')
-  async getStatus(@Param('jobId') jobId: string): Promise<Print> {
-    return this.printsService.getJobStatus(jobId);
+  @Get(':printerId')
+  async getAllJobs(@Param('printerId') printerId: string): Promise<Print[]> {
+    return this.printsService.getAllJobsForPrinter(printerId);
   }
 }

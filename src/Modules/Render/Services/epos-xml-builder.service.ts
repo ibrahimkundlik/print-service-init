@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
 export interface EposPrintJobInput {
-  /** Unique per delivered copy (§9.1) so SetResponse results can be matched back. */
   printjobid: string;
   packedBase64: string;
   widthPx: number;
   heightPx: number;
 }
 
+export const EPOS_PRINT_XML_OVERHEAD_BYTES = 500;
 const EPOS_PRINT_XMLNS = 'http://www.epson-pos.com/schemas/2011/03/epos-print';
 
 /**
@@ -25,18 +25,19 @@ export class EposXmlBuilderService {
   }
 
   private buildEposPrintBlock(job: EposPrintJobInput): string {
-    return `  <ePOSPrint>
-    <Parameter>
-      <devid>local_printer</devid>
-      <timeout>10000</timeout>
-      <printjobid>${job.printjobid}</printjobid>
-    </Parameter>
-    <PrintData>
-      <epos-print xmlns="${EPOS_PRINT_XMLNS}">
-        <image width="${job.widthPx}" height="${job.heightPx}" color="color_1" mode="mono">${job.packedBase64}</image>
-        <cut type="feed"/>
-      </epos-print>
-    </PrintData>
-  </ePOSPrint>`;
+    return `
+    <ePOSPrint>
+      <Parameter>
+        <devid>local_printer</devid>
+        <timeout>10000</timeout>
+        <printjobid>${job.printjobid}</printjobid>
+      </Parameter>
+      <PrintData>
+        <epos-print xmlns="${EPOS_PRINT_XMLNS}">
+          <image width="${job.widthPx}" height="${job.heightPx}" mode="mono">${job.packedBase64}</image>
+          <cut type="feed"/>
+        </epos-print>
+      </PrintData>
+    </ePOSPrint>`;
   }
 }

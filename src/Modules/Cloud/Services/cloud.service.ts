@@ -4,6 +4,7 @@ import { Printer } from '../../Printers/Schemas/printer.schema';
 import { PrintersService } from '../../Printers/Services/printers.service';
 import { PrintsService } from '../../Prints/Services/prints.service';
 import { EventLoggerService } from '../../Logger/event-logger.service';
+import { LogEvents } from '../../Logger/logger.constants';
 
 interface SetResponseOutcome {
   printjobid: string;
@@ -31,7 +32,10 @@ export class CloudService {
    */
   async handleGetRequest(printer: Printer): Promise<string | null> {
     await this.printersService.recordHeartbeat(printer._id);
-    this.eventLogger.logEvent('printer.heartbeat', { printerId: printer._id });
+
+    this.eventLogger.logEvent(LogEvents.PRINTER_HEARTBEAT, {
+      printerId: printer._id,
+    });
 
     const jobInputs = await this.printsService.dequeueForPrinter(printer);
     if (jobInputs.length === 0) {
