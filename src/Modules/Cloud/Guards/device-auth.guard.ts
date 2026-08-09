@@ -2,6 +2,8 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { PrintersService } from '../../Printers/Services/printers.service';
 import { PrinterStatus } from '../../Printers/Schemas/printer.schema';
 import { ClientException } from '../../../Exceptions/ClientException';
+import { EventLoggerService } from '../../Logger/event-logger.service';
+import { LogEvents } from '../../Logger/logger.constants';
 
 /**
  * §6 — the entire authentication model for `/api/cloud` in v1: look up `printers` by
@@ -15,26 +17,58 @@ import { ClientException } from '../../../Exceptions/ClientException';
  */
 @Injectable()
 export class DeviceAuthGuard implements CanActivate {
-  constructor(private readonly printersService: PrintersService) {}
+  constructor(
+    private readonly printersService: PrintersService,
+    private readonly eventLogger: EventLoggerService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const printerId = request.body?.ID;
+    const printerName = request.body?.name;
+
+    const logPayload = { printerId, printerName };
 
     if (!printerId) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        event: 'MISSING_PRINTER_ID',
+        ...logPayload,
+      });
+
       throw new ClientException({
+        statusCode: 404,
         message: 'Missing ID field',
         errorCode: 'MISSING_PRINTER_ID',
-        statusCode: 404,
       });
     }
 
-    const printer = await this.printersService.findById(printerId);
-    if (!printer || printer.status === PrinterStatus.Archived) {
+    let printer: Awaited<ReturnType<PrintersService['findById']>>;
+
+    try {
+      printer = await this.printersService.findById(printerId);
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        event: 'PRINTER_LOOKUP_FAILED',
+        ...logPayload,
+      });
+
       throw new ClientException({
-        message: `Could not find printer with id: ${printerId}`,
-        errorCode: 'PRINTER_NOT_FOUND',
+        statusCode: 500,
+        errorCode: 'PRINTER_LOOKUP_FAILED',
+        message: `Failed to look up printer ${printerId}: ${err.message}`,
+      });
+    }
+
+    if (!printer || printer.status === PrinterStatus.Archived) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        event: 'PRINTER_NOT_FOUND',
+        ...logPayload,
+      });
+
+      throw new ClientException({
         statusCode: 404,
+        errorCode: 'PRINTER_NOT_FOUND',
+        message: `Could not find printer with id: ${printerId}`,
       });
     }
 

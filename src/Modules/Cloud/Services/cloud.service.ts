@@ -15,7 +15,6 @@ interface SetResponseOutcome {
 
 const responseFileParser = new XMLParser({ ignoreAttributes: false });
 
-/** §5.3 — orchestrates the two `ConnectionType` flows the printer itself calls. */
 @Injectable()
 export class CloudService {
   private readonly logger = new Logger(CloudService.name);
@@ -26,20 +25,42 @@ export class CloudService {
     private readonly eventLogger: EventLoggerService,
   ) {}
 
-  /**
-   * `ConnectionType=GetRequest` (§5.3): heartbeat first (even on an empty queue),
-   * then dequeue+render. Returns `null` for the "nothing queued" case so the
-   * controller can send an empty `200` body per §7.
-   */
   async handleGetRequest(printer: Printer): Promise<string | null> {
-    await this.printersService.recordHeartbeat(printer._id);
+    const printerId = printer._id;
 
-    this.eventLogger.logEvent(LogEvents.PRINTER_HEARTBEAT, {
-      printerId: printer._id,
+    try {
+      await this.printersService.recordHeartbeat(printerId);
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        printerId,
+        error: err?.message,
+        event: 'PRINTER_HEARTBEAT_FAILED',
+      });
+      throw err;
+    }
+
+    this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+      printerId,
+      event: 'PRINTER_HEARTBEAT',
     });
 
-    const jobInputs = await this.printJobsService.dequeueForPrinter(printer);
+    let jobInputs: Awaited<ReturnType<PrintJobsService['dequeueForPrinter']>>;
+    try {
+      jobInputs = await this.printJobsService.dequeueForPrinter(printer);
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        printerId,
+        error: err?.message,
+        event: 'PRINTER_DEQUEUE_FAILED',
+      });
+      throw err;
+    }
+
     if (jobInputs.length === 0) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        printerId,
+        event: 'PRINTER_NO_DEQUEUE_JOBS',
+      });
       return null;
     }
 
@@ -51,15 +72,17 @@ export class CloudService {
     responseFileXml: string | undefined,
   ): Promise<void> {
     if (!responseFileXml) {
-      this.logger.log('DEBUG :: CloudService handleSetResponse', {
-        message: `SetResponse with no ResponseFile from printer ${printer._id}`,
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        printerId: printer._id,
+        event: 'PRINTER_SET_RESPONSE_MISSING',
       });
       return;
     }
 
-    const outcomes = this.parseResponseFile(responseFileXml);
+    const outcomes = this.parseResponseFile(responseFileXml, printer._id);
     for (const outcome of outcomes) {
       await this.printJobsService.recordSetResponseOutcome(
+        printer._id,
         outcome.printjobid,
         outcome.success,
         outcome.failureCode,
@@ -68,47 +91,42 @@ export class CloudService {
     }
   }
 
-  /**
-   * Parses the printer's `<PrintResponseInfo>` document (§2/§5.3) into per-job
-   * outcomes. Confirmed against a real device's actual SetResponse payload — one
-   * `<ePOSPrint>` block per job (same tag name as the request envelope, not a
-   * separate "...Response" tag), each wrapping `<Parameter><printjobid>` and
-   * `<PrintResponse><response success="..." code="..." .../></PrintResponse>`,
-   * with `success`/`code` as XML attributes on that nested `<response>` element,
-   * not on the `<ePOSPrint>` entry itself:
-   *
-   *   <ePOSPrint>
-   *     <Parameter><printjobid>...</printjobid></Parameter>
-   *     <PrintResponse>
-   *       <response success="true" code="" status="..." battery="0"/>
-   *     </PrintResponse>
-   *   </ePOSPrint>
-   */
-  private parseResponseFile(xml: string): SetResponseOutcome[] {
-    const parsed = responseFileParser.parse(xml);
-    const root = parsed?.PrintResponseInfo;
+  private parseResponseFile(
+    xml: string,
+    printerId: string,
+  ): SetResponseOutcome[] {
+    try {
+      const parsed = responseFileParser.parse(xml);
+      const root = parsed?.PrintResponseInfo;
 
-    if (!root?.ePOSPrint) {
+      if (!root?.ePOSPrint) {
+        return [];
+      }
+
+      const entries = Array.isArray(root.ePOSPrint)
+        ? root.ePOSPrint
+        : [root.ePOSPrint];
+
+      return entries
+        .map((entry: Record<string, any>) => {
+          const response = entry?.PrintResponse?.response;
+          const success =
+            String(response?.['@_success']).toLowerCase() === 'true';
+          const rawStatus = response?.['@_status'];
+          return {
+            printjobid: entry?.Parameter?.printjobid,
+            success,
+            failureCode: success ? undefined : response?.['@_code'],
+            statusCode: rawStatus !== undefined ? Number(rawStatus) : undefined,
+          };
+        })
+        .filter((outcome: SetResponseOutcome) => Boolean(outcome.printjobid));
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        printerId,
+        event: 'PRINTER_RESPONSE_PARSING_FAILED',
+      });
       return [];
     }
-
-    const entries = Array.isArray(root.ePOSPrint)
-      ? root.ePOSPrint
-      : [root.ePOSPrint];
-
-    return entries
-      .map((entry: Record<string, any>) => {
-        const response = entry?.PrintResponse?.response;
-        const success =
-          String(response?.['@_success']).toLowerCase() === 'true';
-        const rawStatus = response?.['@_status'];
-        return {
-          printjobid: entry?.Parameter?.printjobid,
-          success,
-          failureCode: success ? undefined : response?.['@_code'],
-          statusCode: rawStatus !== undefined ? Number(rawStatus) : undefined,
-        };
-      })
-      .filter((outcome: SetResponseOutcome) => Boolean(outcome.printjobid));
   }
 }

@@ -157,7 +157,7 @@ export class PrintJobsService {
     }
 
     this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-      event: 'queued',
+      status: 'queued',
       bizId,
       locationId,
       orderUprId,
@@ -259,7 +259,7 @@ export class PrintJobsService {
 
     for (const doc of selectedDocs) {
       this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-        event: 'delivered',
+        status: 'delivered',
         bizId: doc.bizId,
         locationId: doc.locationId,
         orderUprId: doc.orderUprId,
@@ -277,6 +277,7 @@ export class PrintJobsService {
   }
 
   async recordSetResponseOutcome(
+    printerId: string,
     printjobid: string,
     success: boolean,
     failureCode?: string,
@@ -284,23 +285,36 @@ export class PrintJobsService {
   ): Promise<void> {
     const jobId = printjobid.split('-copy')[0];
     const statusFlags = describeResponseStatus(statusCode);
+    const basePayload = { jobId, printerId };
 
     let doc: PrintJobDocument | null;
     try {
       doc = await this.printJobModel.findById(jobId).exec();
     } catch (err) {
-      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
-        message: `Failed to look up printjobid ${printjobid}: ${err.message}`,
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        ...basePayload,
+        error: err?.message,
+        event: 'JOB_LOOKUP_FAILED',
       });
       return;
     }
 
     if (!doc) {
-      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
-        message: `SetResponse for unknown printjobid: ${printjobid}`,
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        ...basePayload,
+        event: 'JOB_NOT_FOUND',
       });
       return;
     }
+
+    const printJobPayload = {
+      jobId,
+      type: doc.type,
+      bizId: doc.bizId,
+      printerId: doc.printerId,
+      locationId: doc.locationId,
+      orderUprId: doc.orderUprId,
+    };
 
     try {
       doc.printerResponse.statusCode = statusCode ?? null;
@@ -312,13 +326,8 @@ export class PrintJobsService {
         doc.printerResponse.failureMessage = null;
         await doc.save();
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-          event: 'success',
-          bizId: doc.bizId,
-          locationId: doc.locationId,
-          orderUprId: doc.orderUprId,
-          type: doc.type,
-          jobId,
-          printerId: doc.printerId,
+          ...printJobPayload,
+          status: 'success',
           printerResponse: doc.printerResponse,
         });
         return;
@@ -333,13 +342,8 @@ export class PrintJobsService {
         doc.status = PrintJobStatus.Queued;
         await doc.save();
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-          event: 'retried',
-          bizId: doc.bizId,
-          locationId: doc.locationId,
-          orderUprId: doc.orderUprId,
-          type: doc.type,
-          jobId,
-          printerId: doc.printerId,
+          ...printJobPayload,
+          status: 'retried',
           retryCount: doc.retryCount,
           printerResponse: doc.printerResponse,
         });
@@ -347,19 +351,16 @@ export class PrintJobsService {
         doc.status = PrintJobStatus.Failed;
         await doc.save();
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-          event: 'failed',
-          bizId: doc.bizId,
-          locationId: doc.locationId,
-          orderUprId: doc.orderUprId,
-          type: doc.type,
-          jobId,
-          printerId: doc.printerId,
+          ...printJobPayload,
+          status: 'failed',
           printerResponse: doc.printerResponse,
         });
       }
     } catch (err) {
-      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
-        message: `Failed to persist outcome for printjobid ${printjobid}: ${err.message}`,
+      this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
+        ...basePayload,
+        error: err?.message,
+        event: 'JOB_UPDATE_FAILED',
       });
     }
   }
@@ -388,7 +389,7 @@ export class PrintJobsService {
 
       for (const doc of staleDocs) {
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
-          event: 'expired',
+          status: 'expired',
           bizId: doc.bizId,
           locationId: doc.locationId,
           orderUprId: doc.orderUprId,
@@ -398,9 +399,7 @@ export class PrintJobsService {
         });
       }
     } catch (err) {
-      this.logger.log('DEBUG :: PrintJobsService expireStaleJobs', {
-        message: `Failed to expire stale jobs: ${err.message}`,
-      });
+      // TODO
     }
   }
 }

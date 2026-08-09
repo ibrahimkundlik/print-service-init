@@ -66,10 +66,6 @@ export class PrintersService {
         });
       } catch (err) {
         if (err?.code === 11000) {
-          this.logger.log('DEBUG :: PrintersService createPrinterDto', {
-            attempt,
-            message: 'printerId collision on insert ... regenerating _id',
-          });
           continue;
         }
         throw new ClientException({
