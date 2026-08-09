@@ -26,7 +26,6 @@ export class DeviceAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const printerId = request.body?.ID;
     const printerName = request.body?.name;
-
     const logPayload = { printerId, printerName };
 
     if (!printerId) {

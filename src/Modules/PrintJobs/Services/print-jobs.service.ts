@@ -260,12 +260,12 @@ export class PrintJobsService {
     for (const doc of selectedDocs) {
       this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
         status: 'delivered',
-        bizId: doc.bizId,
-        locationId: doc.locationId,
-        orderUprId: doc.orderUprId,
         type: doc.type,
+        bizId: doc.bizId,
         jobId: String(doc._id),
         printerId: printer._id,
+        locationId: doc.locationId,
+        orderUprId: doc.orderUprId,
       });
     }
 
@@ -390,12 +390,12 @@ export class PrintJobsService {
       for (const doc of staleDocs) {
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
           status: 'expired',
-          bizId: doc.bizId,
-          locationId: doc.locationId,
-          orderUprId: doc.orderUprId,
           type: doc.type,
+          bizId: doc.bizId,
           jobId: String(doc._id),
           printerId: doc.printerId,
+          locationId: doc.locationId,
+          orderUprId: doc.orderUprId,
         });
       }
     } catch (err) {
