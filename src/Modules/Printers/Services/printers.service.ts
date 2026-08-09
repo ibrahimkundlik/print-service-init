@@ -202,7 +202,6 @@ export class PrintersService {
       .find({
         bizId,
         locationIds: locationId,
-        status: { $nin: [PrinterStatus.Pending, PrinterStatus.Archived] },
       })
       .exec();
   }

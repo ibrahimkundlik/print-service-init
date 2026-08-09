@@ -51,15 +51,23 @@ export class PrintJobsService {
     try {
       targets = await this.printersService.findFanoutTargets(bizId, locationId);
     } catch (err) {
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'PRINTER_LOOKUP_FAILED',
+        bizId,
+        locationId,
+        orderUprId,
+      });
+
       throw new ClientException({
-        message: `Failed to resolve printers for bizId=${bizId} locationId=${locationId}: ${err.message}`,
-        errorCode: 'PRINTER_LOOKUP_FAILED',
         statusCode: 500,
+        errorCode: 'PRINTER_LOOKUP_FAILED',
+        message: `Failed to resolve printers for bizId=${bizId} locationId=${locationId}: ${err.message}`,
       });
     }
 
     if (targets.length === 0) {
-      this.eventLogger.logEvent(LogEvents.NO_PRINTERS, {
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'PRINTER_NOT_FOUND',
         bizId,
         locationId,
         orderUprId,
@@ -98,19 +106,20 @@ export class PrintJobsService {
         `Order ${orderUprId}`,
       );
     } catch (err) {
-      this.eventLogger.logEvent(LogEvents.RENDER_FAILED, {
-        printerId: printer._id,
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'PRINT_RENDER_FAILED',
         bizId,
         locationId,
         orderUprId,
         type: printType,
-        error: err.message,
+        error: err?.message,
+        printerId: printer._id,
       });
 
       throw new ClientException({
-        message: `Failed to render order ${orderUprId} for printer ${printer._id} (${printType}): ${err.message}`,
-        errorCode: 'RENDER_FAILED',
         statusCode: 400,
+        errorCode: 'PRINT_RENDER_FAILED',
+        message: `Failed to render order ${orderUprId} for printer ${printer._id} (${printType}): ${err.message}`,
       });
     }
 
@@ -132,20 +141,29 @@ export class PrintJobsService {
         expiresAt: new Date(Date.now() + JOB_TTL_MS),
       });
     } catch (err) {
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'PRINT_JOB_CREATE_FAILED',
+        bizId,
+        locationId,
+        orderUprId,
+        printerId: printer._id,
+      });
+
       throw new ClientException({
-        message: `Failed to queue print job for order ${orderUprId} (printer ${printer._id}): ${err.message}`,
-        errorCode: 'PRINT_JOB_CREATE_FAILED',
         statusCode: 500,
+        errorCode: 'PRINT_JOB_CREATE_FAILED',
+        message: `Failed to queue print job for order ${orderUprId} (printer ${printer._id}): ${err.message}`,
       });
     }
 
-    this.eventLogger.logEvent(LogEvents.JOB_QUEUED, {
-      jobId: String(doc._id),
-      printerId: printer._id,
+    this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+      event: 'queued',
       bizId,
       locationId,
       orderUprId,
       type: printType,
+      jobId: String(doc._id),
+      printerId: printer._id,
     });
   }
 
@@ -239,9 +257,14 @@ export class PrintJobsService {
       });
     }
 
-    for (const jobId of jobIds) {
-      this.eventLogger.logEvent(LogEvents.JOB_DELIVERED, {
-        jobId,
+    for (const doc of selectedDocs) {
+      this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+        event: 'delivered',
+        bizId: doc.bizId,
+        locationId: doc.locationId,
+        orderUprId: doc.orderUprId,
+        type: doc.type,
+        jobId: String(doc._id),
         printerId: printer._id,
       });
     }
@@ -288,11 +311,15 @@ export class PrintJobsService {
         doc.printerResponse.failureCode = null;
         doc.printerResponse.failureMessage = null;
         await doc.save();
-        this.eventLogger.logEvent(LogEvents.JOB_SUCCESS, {
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          event: 'success',
+          bizId: doc.bizId,
+          locationId: doc.locationId,
+          orderUprId: doc.orderUprId,
+          type: doc.type,
           jobId,
           printerId: doc.printerId,
-          statusCode,
-          statusFlags,
+          printerResponse: doc.printerResponse,
         });
         return;
       }
@@ -305,7 +332,12 @@ export class PrintJobsService {
         doc.retryCount += 1;
         doc.status = PrintJobStatus.Queued;
         await doc.save();
-        this.eventLogger.logEvent(LogEvents.JOB_RETRIED, {
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          event: 'retried',
+          bizId: doc.bizId,
+          locationId: doc.locationId,
+          orderUprId: doc.orderUprId,
+          type: doc.type,
           jobId,
           printerId: doc.printerId,
           retryCount: doc.retryCount,
@@ -314,7 +346,12 @@ export class PrintJobsService {
       } else {
         doc.status = PrintJobStatus.Failed;
         await doc.save();
-        this.eventLogger.logEvent(LogEvents.JOB_FAILED, {
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          event: 'failed',
+          bizId: doc.bizId,
+          locationId: doc.locationId,
+          orderUprId: doc.orderUprId,
+          type: doc.type,
           jobId,
           printerId: doc.printerId,
           printerResponse: doc.printerResponse,
@@ -350,7 +387,12 @@ export class PrintJobsService {
         .exec();
 
       for (const doc of staleDocs) {
-        this.eventLogger.logEvent(LogEvents.JOB_EXPIRED, {
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          event: 'expired',
+          bizId: doc.bizId,
+          locationId: doc.locationId,
+          orderUprId: doc.orderUprId,
+          type: doc.type,
           jobId: String(doc._id),
           printerId: doc.printerId,
         });
