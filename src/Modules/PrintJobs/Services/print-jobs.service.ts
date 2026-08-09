@@ -19,6 +19,10 @@ import { EventLoggerService } from '../../Logger/event-logger.service';
 import { LogEvents } from '../../Logger/logger.constants';
 import { ingestOrderDto } from '../DTO/ingest-order.dto';
 import { getMaxPayloadSizeBytes } from '../../../Config/printer-capabilities';
+import {
+  describeResponseCode,
+  describeResponseStatus,
+} from '../Config/print-response.constants';
 
 const MAX_RETRY_COUNT = 3;
 const JOB_TTL_MS = 500 * 60 * 1000; // TODO - Revert to 10 after testing is completed
@@ -253,8 +257,10 @@ export class PrintJobsService {
     printjobid: string,
     success: boolean,
     failureCode?: string,
+    statusCode?: number,
   ): Promise<void> {
     const jobId = printjobid.split('-copy')[0];
+    const statusFlags = describeResponseStatus(statusCode);
 
     let doc: PrintJobDocument | null;
     try {
@@ -274,18 +280,27 @@ export class PrintJobsService {
     }
 
     try {
+      doc.printerResponse.statusCode = statusCode ?? null;
+      doc.printerResponse.statusFlags = statusFlags;
+
       if (success) {
         doc.status = PrintJobStatus.Success;
-        doc.failureCode = null;
+        doc.printerResponse.failureCode = null;
+        doc.printerResponse.failureMessage = null;
         await doc.save();
         this.eventLogger.logEvent(LogEvents.JOB_SUCCESS, {
           jobId,
           printerId: doc.printerId,
+          statusCode,
+          statusFlags,
         });
         return;
       }
 
-      doc.failureCode = failureCode ?? 'UNKNOWN';
+      doc.printerResponse.failureCode = failureCode ?? 'UNKNOWN';
+      doc.printerResponse.failureMessage = describeResponseCode(
+        doc.printerResponse.failureCode,
+      );
       if (doc.retryCount < MAX_RETRY_COUNT) {
         doc.retryCount += 1;
         doc.status = PrintJobStatus.Queued;
@@ -294,7 +309,7 @@ export class PrintJobsService {
           jobId,
           printerId: doc.printerId,
           retryCount: doc.retryCount,
-          failureCode: doc.failureCode,
+          printerResponse: doc.printerResponse,
         });
       } else {
         doc.status = PrintJobStatus.Failed;
@@ -302,7 +317,7 @@ export class PrintJobsService {
         this.eventLogger.logEvent(LogEvents.JOB_FAILED, {
           jobId,
           printerId: doc.printerId,
-          failureCode: doc.failureCode,
+          printerResponse: doc.printerResponse,
         });
       }
     } catch (err) {

@@ -10,6 +10,7 @@ interface SetResponseOutcome {
   printjobid: string;
   success: boolean;
   failureCode?: string;
+  statusCode?: number;
 }
 
 const responseFileParser = new XMLParser({ ignoreAttributes: false });
@@ -62,37 +63,52 @@ export class CloudService {
         outcome.printjobid,
         outcome.success,
         outcome.failureCode,
+        outcome.statusCode,
       );
     }
   }
 
   /**
    * Parses the printer's `<PrintResponseInfo>` document (§2/§5.3) into per-job
-   * outcomes. FINAL_SPEC.md doesn't pin an exact schema for this document (unlike
-   * the GetRequest envelope in §9.1), so this follows Epson's documented
-   * ePOS-Print SDP response shape: one `<ePOSPrintResponse>` per job, each
-   * carrying its `printjobid` and a `success`/`code` pair.
+   * outcomes. Confirmed against a real device's actual SetResponse payload — one
+   * `<ePOSPrint>` block per job (same tag name as the request envelope, not a
+   * separate "...Response" tag), each wrapping `<Parameter><printjobid>` and
+   * `<PrintResponse><response success="..." code="..." .../></PrintResponse>`,
+   * with `success`/`code` as XML attributes on that nested `<response>` element,
+   * not on the `<ePOSPrint>` entry itself:
+   *
+   *   <ePOSPrint>
+   *     <Parameter><printjobid>...</printjobid></Parameter>
+   *     <PrintResponse>
+   *       <response success="true" code="" status="..." battery="0"/>
+   *     </PrintResponse>
+   *   </ePOSPrint>
    */
   private parseResponseFile(xml: string): SetResponseOutcome[] {
     const parsed = responseFileParser.parse(xml);
     const root = parsed?.PrintResponseInfo;
-    if (!root?.ePOSPrintResponse) {
+
+    if (!root?.ePOSPrint) {
       return [];
     }
 
-    const entries = Array.isArray(root.ePOSPrintResponse)
-      ? root.ePOSPrintResponse
-      : [root.ePOSPrintResponse];
+    const entries = Array.isArray(root.ePOSPrint)
+      ? root.ePOSPrint
+      : [root.ePOSPrint];
 
     return entries
-      .map((entry: Record<string, any>) => ({
-        printjobid: entry?.Parameter?.printjobid,
-        success: String(entry?.success).toLowerCase() === 'true',
-        failureCode:
-          String(entry?.success).toLowerCase() === 'true'
-            ? undefined
-            : entry?.code,
-      }))
+      .map((entry: Record<string, any>) => {
+        const response = entry?.PrintResponse?.response;
+        const success =
+          String(response?.['@_success']).toLowerCase() === 'true';
+        const rawStatus = response?.['@_status'];
+        return {
+          printjobid: entry?.Parameter?.printjobid,
+          success,
+          failureCode: success ? undefined : response?.['@_code'],
+          statusCode: rawStatus !== undefined ? Number(rawStatus) : undefined,
+        };
+      })
       .filter((outcome: SetResponseOutcome) => Boolean(outcome.printjobid));
   }
 }

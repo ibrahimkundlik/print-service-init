@@ -23,7 +23,7 @@ export class CloudController {
     const printer = (request as Request & { printer: Printer }).printer;
     const body = request.body as SdpRequestBody;
 
-    console.log('DEBUG :: handlePoll', { body, printer });
+    console.log('DEBUG :: handlePoll', { body, pid: printer?._id });
 
     if (body.ConnectionType === 'SetResponse') {
       await this.cloudService.handleSetResponse(printer, body.ResponseFile);

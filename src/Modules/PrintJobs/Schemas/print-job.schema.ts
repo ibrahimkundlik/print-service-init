@@ -26,6 +26,27 @@ export class PrintJobPayload {
   sizeBytes: number;
 }
 
+/**
+ * The printer's own SetResponse outcome for this job (§5.3) — raw `code`/`status`
+ * plus their human-readable decode, see print-response.constants.ts. Set on every
+ * SetResponse regardless of success/failure; `failureCode`/`failureMessage` are
+ * cleared to `null` on a successful outcome.
+ */
+@Schema()
+export class PrintJobPrinterResponse {
+  @Prop({ type: String, default: null })
+  failureCode: string | null;
+
+  @Prop({ type: String, default: null })
+  failureMessage: string | null;
+
+  @Prop({ type: Number, default: null })
+  statusCode: number | null;
+
+  @Prop({ type: [String], default: [] })
+  statusFlags: string[];
+}
+
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class PrintJob {
   @Prop({ type: String, required: true })
@@ -57,8 +78,8 @@ export class PrintJob {
   })
   status: PrintJobStatus;
 
-  @Prop({ type: String, default: null })
-  failureCode: string | null;
+  @Prop({ type: PrintJobPrinterResponse, default: () => ({}) })
+  printerResponse: PrintJobPrinterResponse;
 
   @Prop({ type: Number, required: true, default: 0 })
   retryCount: number;
