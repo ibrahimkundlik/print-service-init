@@ -3,10 +3,10 @@ import { CloudController } from './Controllers/cloud.controller';
 import { CloudService } from './Services/cloud.service';
 import { DeviceAuthGuard } from './Guards/device-auth.guard';
 import { PrintersModule } from '../Printers/printers.module';
-import { PrintsModule } from '../Prints/prints.module';
+import { PrintJobsModule } from '../PrintJobs/print-jobs.module';
 
 @Module({
-  imports: [PrintersModule, PrintsModule],
+  imports: [PrintersModule, PrintJobsModule],
   controllers: [CloudController],
   providers: [CloudService, DeviceAuthGuard],
 })

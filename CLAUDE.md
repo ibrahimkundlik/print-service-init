@@ -77,11 +77,13 @@ Domains:
   orchestrates all three; `EposXmlBuilderService` builds the `<PrintRequestInfo>`
   envelope for a batch of jobs. See "Rendering pipeline gotchas" below — every one of
   these was a real bug hit against physical hardware during the POC.
-- **Prints** (`src/Modules/Prints`) — order ingest/fan-out (`orders.controller.ts`,
-  `POST /api/orders`) and job status (`jobs.controller.ts`, `GET /api/jobs/:jobId`).
-  `PrintsService` resolves fan-out targets via `PrintersService`, renders+packs once
-  per target, and queues one `prints` document per match. Also owns the SetResponse
-  retry/max-retry logic and the job-expiry `@Cron` sweep.
+- **PrintJobs** (`src/Modules/PrintJobs`) — order ingest/fan-out (`orders.controller.ts`,
+  `POST /api/orders`) and per-printer job listing (`jobs.controller.ts`,
+  `GET /api/jobs/:printerId`, last 24h only, auth-gated). `PrintJobsService` resolves
+  fan-out targets via `PrintersService`, renders+packs once per (printer, printType)
+  pair, and queues one `PrintJob` document per pair (Mongoose collection: `printjobs`
+  — renamed from the module's original `Prints`/`prints` naming). Also owns the
+  SetResponse retry/max-retry logic and the job-expiry `@Cron` sweep.
 - **Cloud** (`src/Modules/Cloud`) — the endpoint the **printer itself** polls
   (`POST /api/cloud`, one shared URL for every printer). `DeviceAuthGuard` is the
   entire v1 auth model: look up `printers` by `_id = ID` form field, `404` if missing
@@ -134,16 +136,16 @@ All discovered against real Epson hardware during the POC (`bill-html.service.ts
 
 ### Deliberate deviations / judgment calls not pinned down by FINAL_SPEC.md
 
-- `OFFLINE_THRESHOLD_MS` (60s, `printers.service.ts`), `JOB_TTL_MS` (15min) and
-  `MAX_RETRY_COUNT` (3, both in `prints.service.ts`) are fixed constants — the spec
-  doesn't give exact numbers for any of them.
-- `Print.retryCount` (`print.schema.ts`) is a narrow, commented deviation from
+- `OFFLINE_THRESHOLD_MS` (60s, `printers.service.ts`), `JOB_TTL_MS` and
+  `MAX_RETRY_COUNT` (3, both in `print-jobs.service.ts`) are fixed constants — the
+  spec doesn't give exact numbers for any of them.
+- `PrintJob.retryCount` (`print-job.schema.ts`) is a narrow, commented deviation from
   FINAL_SPEC.md's stated preference to keep all retry history purely in the Kibana
   event trail — the SetResponse handler needs a fast synchronous answer to "already
   retried past the max?" that querying an ELK store in the request path can't give.
-- `dequeueForPrinter` (`prints.service.ts`) caps a poll's page at the printer model's
-  max payload size (FINAL_SPEC.md §8) — jobs that don't fit stay `queued` for the next
-  poll rather than being sent oversized.
+- `dequeueForPrinter` (`print-jobs.service.ts`) caps a poll's page at the printer
+  model's max payload size (FINAL_SPEC.md §8) — jobs that don't fit stay `queued` for
+  the next poll rather than being sent oversized.
 
 ### Config notes
 

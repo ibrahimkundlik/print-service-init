@@ -6,7 +6,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { LoggerModule } from './Modules/Logger/logger.module';
 import { PrintersModule } from './Modules/Printers/printers.module';
 import { RenderModule } from './Modules/Render/render.module';
-import { PrintsModule } from './Modules/Prints/prints.module';
+import { PrintJobsModule } from './Modules/PrintJobs/print-jobs.module';
 import { CloudModule } from './Modules/Cloud/cloud.module';
 import { AuthModule } from './Modules/Auth/auth.module';
 
@@ -37,7 +37,7 @@ import { AuthModule } from './Modules/Auth/auth.module';
     AuthModule,
     PrintersModule,
     RenderModule,
-    PrintsModule,
+    PrintJobsModule,
     CloudModule,
   ],
 })

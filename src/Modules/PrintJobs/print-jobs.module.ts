@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Print, PrintSchema } from './Schemas/print.schema';
+import { PrintJob, PrintJobSchema } from './Schemas/print-job.schema';
 import { OrdersController } from './Controllers/orders.controller';
 import { JobsController } from './Controllers/jobs.controller';
-import { PrintsService } from './Services/prints.service';
+import { PrintJobsService } from './Services/print-jobs.service';
 import { PrintersModule } from '../Printers/printers.module';
 import { RenderModule } from '../Render/render.module';
 import { AuthModule } from '../Auth/auth.module';
@@ -11,7 +11,7 @@ import { AuthModule } from '../Auth/auth.module';
 @Module({
   imports: [
     MongooseModule.forFeature(
-      [{ name: Print.name, schema: PrintSchema }],
+      [{ name: PrintJob.name, schema: PrintJobSchema }],
       'mongodb',
     ),
     PrintersModule,
@@ -19,7 +19,7 @@ import { AuthModule } from '../Auth/auth.module';
     AuthModule,
   ],
   controllers: [OrdersController, JobsController],
-  providers: [PrintsService],
-  exports: [PrintsService],
+  providers: [PrintJobsService],
+  exports: [PrintJobsService],
 })
-export class PrintsModule {}
+export class PrintJobsModule {}

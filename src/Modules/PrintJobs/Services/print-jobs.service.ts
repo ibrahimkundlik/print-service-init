@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Model } from 'mongoose';
-import { Print, PrintDocument, PrintJobStatus } from '../Schemas/print.schema';
+import {
+  PrintJob,
+  PrintJobDocument,
+  PrintJobStatus,
+} from '../Schemas/print-job.schema';
 import { Printer, PrintType } from '../../Printers/Schemas/printer.schema';
 import { PrintersService } from '../../Printers/Services/printers.service';
 import { BillRenderService } from '../../Render/Services/bill-render.service';
@@ -22,12 +26,12 @@ const DEFAULT_DEQUEUE_PAGE_SIZE = 10; // TODO - Recheck this once final testing 
 const JOBS_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
-export class PrintsService {
-  private readonly logger = new Logger(PrintsService.name);
+export class PrintJobsService {
+  private readonly logger = new Logger(PrintJobsService.name);
 
   constructor(
-    @InjectModel(Print.name, 'mongodb')
-    private readonly printModel: Model<Print>,
+    @InjectModel(PrintJob.name, 'mongodb')
+    private readonly printJobModel: Model<PrintJob>,
     private readonly printersService: PrintersService,
     private readonly billRenderService: BillRenderService,
     private readonly eposXmlBuilderService: EposXmlBuilderService,
@@ -106,9 +110,9 @@ export class PrintsService {
       });
     }
 
-    let doc: PrintDocument;
+    let doc: PrintJobDocument;
     try {
-      doc = await this.printModel.create({
+      doc = await this.printJobModel.create({
         printerId: printer._id,
         bizId,
         locationId,
@@ -141,10 +145,10 @@ export class PrintsService {
     });
   }
 
-  async getAllJobsForPrinter(printerId: string): Promise<Print[]> {
+  async getAllJobsForPrinter(printerId: string): Promise<PrintJob[]> {
     const since = new Date(Date.now() - JOBS_LOOKBACK_MS);
     try {
-      return await this.printModel
+      return await this.printJobModel
         .find({ printerId, createdAt: { $gte: since } })
         .sort({ createdAt: -1 })
         .exec();
@@ -161,9 +165,9 @@ export class PrintsService {
     printer: Printer,
     pageSize = DEFAULT_DEQUEUE_PAGE_SIZE,
   ): Promise<EposPrintJobInput[]> {
-    let docs: PrintDocument[];
+    let docs: PrintJobDocument[];
     try {
-      docs = await this.printModel
+      docs = await this.printJobModel
         .find({
           printerId: printer._id,
           status: PrintJobStatus.Queued,
@@ -217,7 +221,7 @@ export class PrintsService {
 
     const jobIds = selectedDocs.map((doc) => String(doc._id));
     try {
-      await this.printModel
+      await this.printJobModel
         .updateMany(
           { _id: { $in: jobIds } },
           { status: PrintJobStatus.Delivered },
@@ -252,18 +256,18 @@ export class PrintsService {
   ): Promise<void> {
     const jobId = printjobid.split('-copy')[0];
 
-    let doc: PrintDocument | null;
+    let doc: PrintJobDocument | null;
     try {
-      doc = await this.printModel.findById(jobId).exec();
+      doc = await this.printJobModel.findById(jobId).exec();
     } catch (err) {
-      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
         message: `Failed to look up printjobid ${printjobid}: ${err.message}`,
       });
       return;
     }
 
     if (!doc) {
-      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
         message: `SetResponse for unknown printjobid: ${printjobid}`,
       });
       return;
@@ -302,7 +306,7 @@ export class PrintsService {
         });
       }
     } catch (err) {
-      this.logger.log('DEBUG :: PrintsService recordSetResponseOutcome', {
+      this.logger.log('DEBUG :: PrintJobsService recordSetResponseOutcome', {
         message: `Failed to persist outcome for printjobid ${printjobid}: ${err.message}`,
       });
     }
@@ -311,7 +315,7 @@ export class PrintsService {
   @Cron(CronExpression.EVERY_MINUTE)
   async expireStaleJobs(): Promise<void> {
     try {
-      const staleDocs = await this.printModel
+      const staleDocs = await this.printJobModel
         .find({
           status: PrintJobStatus.Queued,
           expiresAt: { $lte: new Date() },
@@ -323,7 +327,7 @@ export class PrintsService {
       }
 
       const jobIds = staleDocs.map((doc) => String(doc._id));
-      await this.printModel
+      await this.printJobModel
         .updateMany(
           { _id: { $in: jobIds } },
           { status: PrintJobStatus.Expired },
@@ -337,7 +341,7 @@ export class PrintsService {
         });
       }
     } catch (err) {
-      this.logger.log('DEBUG :: PrintsService expireStaleJobs', {
+      this.logger.log('DEBUG :: PrintJobsService expireStaleJobs', {
         message: `Failed to expire stale jobs: ${err.message}`,
       });
     }

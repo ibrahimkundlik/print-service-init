@@ -11,7 +11,7 @@ export enum PrintJobStatus {
 }
 
 @Schema()
-export class PrintPayload {
+export class PrintJobPayload {
   @Prop({ type: String, required: true })
   packedBase64: string;
 
@@ -27,7 +27,7 @@ export class PrintPayload {
 }
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
-export class Print {
+export class PrintJob {
   @Prop({ type: String, required: true })
   printerId: string;
 
@@ -43,8 +43,8 @@ export class Print {
   @Prop({ type: String, required: true, enum: PrintType })
   type: PrintType;
 
-  @Prop({ type: PrintPayload, required: true })
-  payload: PrintPayload;
+  @Prop({ type: PrintJobPayload, required: true })
+  payload: PrintJobPayload;
 
   @Prop({ type: Number, required: true, default: 1 })
   copies: number;
@@ -69,6 +69,6 @@ export class Print {
   createdAt?: Date;
 }
 
-export type PrintDocument = HydratedDocument<Print>;
+export type PrintJobDocument = HydratedDocument<PrintJob>;
 
-export const PrintSchema = SchemaFactory.createForClass(Print);
+export const PrintJobSchema = SchemaFactory.createForClass(PrintJob);

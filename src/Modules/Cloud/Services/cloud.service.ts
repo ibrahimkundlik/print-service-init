@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { XMLParser } from 'fast-xml-parser';
 import { Printer } from '../../Printers/Schemas/printer.schema';
 import { PrintersService } from '../../Printers/Services/printers.service';
-import { PrintsService } from '../../Prints/Services/prints.service';
+import { PrintJobsService } from '../../PrintJobs/Services/print-jobs.service';
 import { EventLoggerService } from '../../Logger/event-logger.service';
 import { LogEvents } from '../../Logger/logger.constants';
 
@@ -21,7 +21,7 @@ export class CloudService {
 
   constructor(
     private readonly printersService: PrintersService,
-    private readonly printsService: PrintsService,
+    private readonly printJobsService: PrintJobsService,
     private readonly eventLogger: EventLoggerService,
   ) {}
 
@@ -37,12 +37,12 @@ export class CloudService {
       printerId: printer._id,
     });
 
-    const jobInputs = await this.printsService.dequeueForPrinter(printer);
+    const jobInputs = await this.printJobsService.dequeueForPrinter(printer);
     if (jobInputs.length === 0) {
       return null;
     }
 
-    return this.printsService.buildPrintRequestXml(jobInputs);
+    return this.printJobsService.buildPrintRequestXml(jobInputs);
   }
 
   async handleSetResponse(
@@ -58,7 +58,7 @@ export class CloudService {
 
     const outcomes = this.parseResponseFile(responseFileXml);
     for (const outcome of outcomes) {
-      await this.printsService.recordSetResponseOutcome(
+      await this.printJobsService.recordSetResponseOutcome(
         outcome.printjobid,
         outcome.success,
         outcome.failureCode,
