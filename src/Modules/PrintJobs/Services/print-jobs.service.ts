@@ -46,6 +46,33 @@ export class PrintJobsService {
     const bizId = Number(order.biz_upr_id);
     const orderUprId = Number(order.upr_id);
     const locationId = Number(order.location.id);
+    const logPayload = { bizId, orderUprId, locationId };
+
+    let existingJob: PrintJobDocument | null;
+    try {
+      existingJob = await this.printJobModel
+        .findOne({ bizId, orderUprId })
+        .exec();
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'DUPLICATE_CHECK_FAILED',
+        ...logPayload,
+      });
+
+      throw new ClientException({
+        statusCode: 500,
+        errorCode: 'DUPLICATE_CHECK_FAILED',
+        message: `Failed to check for duplicate order ${orderUprId}: ${err.message}`,
+      });
+    }
+
+    if (existingJob) {
+      this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
+        event: 'DUPLICATE_ORDER',
+        ...logPayload,
+      });
+      return;
+    }
 
     let targets: Printer[];
     try {
@@ -53,9 +80,7 @@ export class PrintJobsService {
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
         event: 'PRINTER_LOOKUP_FAILED',
-        bizId,
-        locationId,
-        orderUprId,
+        ...logPayload,
       });
 
       throw new ClientException({
@@ -68,9 +93,7 @@ export class PrintJobsService {
     if (targets.length === 0) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
         event: 'PRINTER_NOT_FOUND',
-        bizId,
-        locationId,
-        orderUprId,
+        ...logPayload,
       });
       return;
     }
@@ -98,6 +121,14 @@ export class PrintJobsService {
     locationId: number,
   ): Promise<void> {
     let packed;
+    const logPayload = {
+      bizId,
+      orderUprId,
+      locationId,
+      type: printType,
+      printerId: printer._id,
+    };
+
     try {
       packed = await this.billRenderService.renderAndPack(
         order,
@@ -108,12 +139,8 @@ export class PrintJobsService {
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
         event: 'PRINT_RENDER_FAILED',
-        bizId,
-        locationId,
-        orderUprId,
-        type: printType,
         error: err?.message,
-        printerId: printer._id,
+        ...logPayload,
       });
 
       throw new ClientException({
@@ -143,10 +170,7 @@ export class PrintJobsService {
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
         event: 'PRINT_JOB_CREATE_FAILED',
-        bizId,
-        locationId,
-        orderUprId,
-        printerId: printer._id,
+        ...logPayload,
       });
 
       throw new ClientException({
@@ -158,12 +182,8 @@ export class PrintJobsService {
 
     this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
       status: 'queued',
-      bizId,
-      locationId,
-      orderUprId,
-      type: printType,
       jobId: String(doc._id),
-      printerId: printer._id,
+      ...logPayload,
     });
   }
 
