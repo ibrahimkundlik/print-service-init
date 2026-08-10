@@ -98,7 +98,7 @@ curl -s -X POST http://localhost:6000/api/cloud \
 curl -s http://localhost:6000/api/jobs/<printerId> -H "Authorization: Bearer $TOKEN"
 ```
 
-`order.json` needs at minimum `upr_id`, `biz_upr_id`, and `location.id` matching a
+`order.json` needs at minimum `upr_id`, `codex_biz_id`, and `location.id` matching a
 registered printer's `bizId`/`locationIds`, plus a real `data.lines` array (CorePrint
 renders actual line items — an order payload with no lines will fail rendering).
 

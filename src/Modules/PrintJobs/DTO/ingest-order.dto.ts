@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsDefined,
   IsNotEmpty,
+  IsNumber,
   IsString,
   ValidateNested,
 } from 'class-validator';
@@ -12,13 +13,13 @@ class orderLocationDto {
 }
 
 export class ingestOrderDto {
-  @IsString()
-  @IsNotEmpty()
-  upr_id: string;
+  @IsNumber()
+  @IsDefined()
+  upr_id: number;
 
   @IsString()
   @IsNotEmpty()
-  biz_upr_id: string;
+  codex_biz_id: string;
 
   @ValidateNested()
   @Type(() => orderLocationDto)

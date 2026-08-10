@@ -43,7 +43,7 @@ export class PrintJobsService {
   ) {}
 
   async ingestOrder(order: ingestOrderDto): Promise<void> {
-    const bizId = Number(order.biz_upr_id);
+    const bizId = Number(order.codex_biz_id);
     const orderUprId = Number(order.upr_id);
     const locationId = Number(order.location.id);
     const logPayload = { bizId, orderUprId, locationId };
