@@ -26,12 +26,6 @@ export class PrintJobPayload {
   sizeBytes: number;
 }
 
-/**
- * The printer's own SetResponse outcome for this job (§5.3) — raw `code`/`status`
- * plus their human-readable decode, see print-response.constants.ts. Set on every
- * SetResponse regardless of success/failure; `failureCode`/`failureMessage` are
- * cleared to `null` on a successful outcome.
- */
 @Schema()
 export class PrintJobPrinterResponse {
   @Prop({ type: String, default: null })
@@ -63,6 +57,9 @@ export class PrintJob {
 
   @Prop({ type: Number, required: true })
   orderUprId: number;
+
+  @Prop({ type: Number, required: true })
+  orderPrimeId: number;
 
   @Prop({ type: String, required: true, enum: PrintType })
   type: PrintType;

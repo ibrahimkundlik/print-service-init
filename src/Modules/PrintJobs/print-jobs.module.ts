@@ -7,6 +7,8 @@ import { PrintJobsService } from './Services/print-jobs.service';
 import { PrintersModule } from '../Printers/printers.module';
 import { RenderModule } from '../Render/render.module';
 import { AuthModule } from '../Auth/auth.module';
+import { PrimeApiModule } from '../PrimeApi/prime-api.module';
+import { PrimeIncomingAuthGuard } from './Guards/prime-incoming-auth.guard';
 
 @Module({
   imports: [
@@ -17,9 +19,10 @@ import { AuthModule } from '../Auth/auth.module';
     PrintersModule,
     RenderModule,
     AuthModule,
+    PrimeApiModule,
   ],
   controllers: [OrdersController, JobsController],
-  providers: [PrintJobsService],
+  providers: [PrintJobsService, PrimeIncomingAuthGuard],
   exports: [PrintJobsService],
 })
 export class PrintJobsModule {}

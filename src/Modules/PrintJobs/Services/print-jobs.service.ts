@@ -23,6 +23,7 @@ import {
   describeResponseCode,
   describeResponseStatus,
 } from '../Config/print-response.constants';
+import { PrimeApiService } from '../../PrimeApi/Services/prime-api.service';
 
 const MAX_RETRY_COUNT = 3;
 const JOB_TTL_MS = 500 * 60 * 1000; // TODO - Revert to 10 after testing is completed
@@ -40,12 +41,14 @@ export class PrintJobsService {
     private readonly billRenderService: BillRenderService,
     private readonly eposXmlBuilderService: EposXmlBuilderService,
     private readonly eventLogger: EventLoggerService,
+    private readonly primeApiService: PrimeApiService,
   ) {}
 
   async ingestOrder(order: ingestOrderDto): Promise<void> {
+    const orderPrimeId = Number(order.id);
+    const orderUprId = Number(order.upr_id);
     const primeBizId = Number(order.prime_biz_id);
     const codexBizId = Number(order.codex_biz_id);
-    const orderUprId = Number(order.upr_id);
     const locationId = Number(order.location.id);
     const logPayload = { primeBizId, orderUprId, locationId };
 
@@ -109,6 +112,7 @@ export class PrintJobsService {
           printType,
           order,
           orderUprId,
+          orderPrimeId,
           primeBizId,
           codexBizId,
           locationId,
@@ -122,6 +126,7 @@ export class PrintJobsService {
     printType: PrintType,
     order: ingestOrderDto,
     orderUprId: number,
+    orderPrimeId: number,
     primeBizId: number,
     codexBizId: number,
     locationId: number,
@@ -141,6 +146,8 @@ export class PrintJobsService {
         printType,
         printer.printWidthDots,
         `Order ${orderUprId}`,
+        primeBizId,
+        locationId,
       );
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
@@ -164,6 +171,7 @@ export class PrintJobsService {
         codexBizId,
         locationId,
         orderUprId,
+        orderPrimeId,
         type: printType,
         payload: {
           widthPx: packed.widthPx,
@@ -341,6 +349,7 @@ export class PrintJobsService {
       printerId: doc.printerId,
       locationId: doc.locationId,
       orderUprId: doc.orderUprId,
+      orderPrimeId: doc.orderPrimeId,
     };
 
     try {
@@ -382,6 +391,7 @@ export class PrintJobsService {
           status: 'failed',
           printerResponse: doc.printerResponse,
         });
+        await this.notifyPrintFailure(doc);
       }
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.PRINTER_POLLING, {
@@ -389,6 +399,57 @@ export class PrintJobsService {
         error: err?.message,
         event: 'JOB_UPDATE_FAILED',
       });
+    }
+  }
+
+  private async notifyPrintFailure(doc: PrintJobDocument): Promise<void> {
+    const jobId = String(doc._id);
+    const logPayload = { jobId, printerId: doc.printerId };
+
+    let printer: Printer | null;
+    try {
+      printer = await this.printersService.findById(doc.printerId);
+    } catch (err) {
+      this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+        ...logPayload,
+        status: 'failure_email_skipped',
+        reason: 'PRINTER_LOOKUP_FAILED',
+        error: err?.message,
+      });
+      return;
+    }
+
+    if (!printer?.emails.length) {
+      this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+        ...logPayload,
+        status: 'failure_email_skipped',
+        reason: 'NO_RECIPIENT_EMAILS',
+      });
+      return;
+    }
+
+    for (const recipientEmail of printer.emails) {
+      try {
+        await this.primeApiService.sendPrintFailureEmail({
+          company_id: doc.primeBizId,
+          order_id: doc.orderPrimeId,
+          type: doc.type,
+          printer_label: printer.label,
+          recipient_email: recipientEmail,
+        });
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          ...logPayload,
+          status: 'failure_email_sent',
+          recipientEmail,
+        });
+      } catch (err) {
+        this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
+          ...logPayload,
+          status: 'failure_email_failed',
+          recipientEmail,
+          error: err?.message,
+        });
+      }
     }
   }
 

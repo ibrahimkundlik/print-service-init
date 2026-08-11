@@ -62,10 +62,13 @@ The service listens on `PORT` (default `6000`) with no global route prefix — r
 are exactly `/api/printers`, `/api/orders`, `/api/jobs/:printerId`, `/api/cloud`.
 
 `/api/printers/*` and `/api/jobs/*` require a valid Prime bearer token
-(`Authorization: Bearer <token>` — validated against `<PRIME_API_URL>/users/authorities/v2`).
-`/api/orders` and `/api/cloud` don't — the former is an internal ingest endpoint, the
-latter is what the printer itself calls (auth is the `ID` form field, looked up
-directly against the `printers` collection).
+(`Authorization: Bearer <token>` — validated against `<PRIME_API_URL>/api/v1/users/authorities/v2`).
+`/api/orders` requires a different, static bearer token instead — Prime's own outbound
+calls to this endpoint attach `Authorization: Bearer <PRINT_SERVICE_OUTBOUND_TOKEN>`
+(config on Prime's side), checked here against `PRIME_INCOMING_AUTH_TOKEN` with a plain
+config-value comparison, no DB lookup. `/api/cloud` isn't bearer-authed at all — it's
+what the printer itself calls, and auth there is the `ID` form field, looked up
+directly against the `printers` collection.
 
 ## Quick smoke test
 
@@ -86,7 +89,7 @@ curl -s -X POST http://localhost:6000/api/cloud \
 # 3. Ingest an order (fans out to every matching printer, renders + queues a job).
 #    Response is 200 with an empty body either way; check step 5 to see what landed.
 curl -s -X POST http://localhost:6000/api/orders \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $PRIME_INCOMING_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d @order.json
 
 # 4. Poll again to fetch the rendered ePOS-Print XML for that job

@@ -34,7 +34,8 @@ export class AuthService {
     }
 
     const url =
-      this.configService.get<string>('PRIME_API_URL') + '/users/authorities/v2';
+      this.configService.get<string>('PRIME_API_URL') +
+      '/api/v1/users/authorities/v2';
 
     try {
       const { data } = await lastValueFrom(
