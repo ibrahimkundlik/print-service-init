@@ -1,3 +1,4 @@
+import Redis from 'ioredis';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -9,6 +10,8 @@ import { RenderModule } from './Modules/Render/render.module';
 import { PrintJobsModule } from './Modules/PrintJobs/print-jobs.module';
 import { CloudModule } from './Modules/Cloud/cloud.module';
 import { AuthModule } from './Modules/Auth/auth.module';
+import { RedisModule, REDIS_CLIENT } from './Core/Redis/redis.module';
+import { redisCacheStore } from './Core/Cache/redis-cache.store';
 
 @Module({
   imports: [
@@ -23,14 +26,17 @@ import { AuthModule } from './Modules/Auth/auth.module';
       inject: [ConfigService],
     }),
 
-    /**
-     * In-memory cache backing AuthService's Prime-authorities lookups (5 min TTL,
-     * see auth.service.ts). Deliberately not Redis-backed like prime-dr3's —
-     * that needs its own Redis client/module this service doesn't otherwise need
-     * yet. Swap for a Redis store here later without touching Auth code if this
-     * service ever runs multiple instances and needs a shared cache.
-     */
-    CacheModule.register({ isGlobal: true, ttl: 300000 }),
+    RedisModule,
+    CacheModule.registerAsync({
+      inject: [REDIS_CLIENT],
+      useFactory: async (redisClient: Redis) => ({
+        store: redisCacheStore,
+        client: redisClient,
+        keyPrefix: 'print-service:cache:',
+        ttl: 10 * 60 * 1000,
+      }),
+      isGlobal: true,
+    }),
 
     ScheduleModule.forRoot(),
     LoggerModule,

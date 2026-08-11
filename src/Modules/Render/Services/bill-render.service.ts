@@ -11,7 +11,7 @@ import {
 } from '../../PrimeApi/Services/prime-api.service';
 import { getPrintTemplateConfig } from '../Config/print-template-resolver';
 
-const TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
+const TEMPLATE_CACHE_TTL_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class BillRenderService {

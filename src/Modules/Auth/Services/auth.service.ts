@@ -11,6 +11,8 @@ import { catchError, lastValueFrom } from 'rxjs';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 
+const USER_CACHE_TTL_MS = 60 * 60 * 1000;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -51,7 +53,7 @@ export class AuthService {
           ),
       );
 
-      await this.cacheManager.set(cacheKey, data, 300000);
+      await this.cacheManager.set(cacheKey, data, USER_CACHE_TTL_MS);
       return data;
     } catch (e) {
       this.logger.log('DEBUG :: AuthService Err', { error: e });
