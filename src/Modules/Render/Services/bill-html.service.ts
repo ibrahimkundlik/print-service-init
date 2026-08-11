@@ -29,7 +29,7 @@ const { CorePrint, CoreHelpers } = requireEsm(
 
 CoreHelpers.initializeI18n('en');
 
-const TEST_MODE = true;
+const TEST_MODE = false;
 
 function buildTestHtml(orderUprId: unknown, printType: PrintType): string {
   return `

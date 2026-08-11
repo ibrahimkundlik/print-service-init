@@ -75,7 +75,12 @@ export class PrintJobsService {
         event: 'DUPLICATE_ORDER',
         ...logPayload,
       });
-      return;
+
+      throw new ClientException({
+        statusCode: 400,
+        errorCode: 'DUPLICATE_ORDER',
+        message: `Order=${orderUprId} already present for primeBizId=${primeBizId}`,
+      });
     }
 
     let targets: Printer[];
@@ -102,7 +107,12 @@ export class PrintJobsService {
         event: 'PRINTER_NOT_FOUND',
         ...logPayload,
       });
-      return;
+
+      throw new ClientException({
+        statusCode: 400,
+        errorCode: 'PRINTER_NOT_FOUND',
+        message: `No printers configured for primeBizId=${primeBizId} locationId=${locationId}`,
+      });
     }
 
     for (const printer of targets) {
@@ -157,7 +167,7 @@ export class PrintJobsService {
       });
 
       throw new ClientException({
-        statusCode: 400,
+        statusCode: 500,
         errorCode: 'PRINT_RENDER_FAILED',
         message: `Failed to render order ${orderUprId} for printer ${printer._id} (${printType}): ${err.message}`,
       });
