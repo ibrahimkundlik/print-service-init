@@ -20,7 +20,7 @@ export class Printer {
   _id: string;
 
   @Prop({ type: Number, required: true })
-  bizId: number;
+  primeBizId: number;
 
   @Prop({ type: [Number], required: true, default: [] })
   locationIds: number[];

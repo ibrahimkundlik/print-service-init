@@ -75,7 +75,7 @@ TOKEN="<a real Prime bearer token>"
 # 1. Register a printer
 curl -s -X POST http://localhost:6000/api/printers \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"bizId":22334455,"locationIds":[233632],"label":"Front Counter","printType":["bill"],"model":"TM-T88VI"}'
+  -d '{"primeBizId":22334455,"locationIds":[233632],"label":"Front Counter","printType":["bill"],"model":"TM-T88VI"}'
 # -> { "printer": { "_id": "<printerId>", "status": "pending", ... }, "webConfig": { "id": "<printerId>", "url": "..." } }
 
 # 2. Simulate the printer's first poll (flips status pending -> online)
@@ -98,8 +98,8 @@ curl -s -X POST http://localhost:6000/api/cloud \
 curl -s http://localhost:6000/api/jobs/<printerId> -H "Authorization: Bearer $TOKEN"
 ```
 
-`order.json` needs at minimum `upr_id`, `codex_biz_id`, and `location.id` matching a
-registered printer's `bizId`/`locationIds`, plus a real `data.lines` array (CorePrint
+`order.json` needs at minimum `upr_id`, `prime_biz_id`, and `location.id` matching a
+registered printer's `primeBizId`/`locationIds`, plus a real `data.lines` array (CorePrint
 renders actual line items — an order payload with no lines will fail rendering).
 
 ## Module layout

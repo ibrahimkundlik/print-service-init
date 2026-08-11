@@ -43,15 +43,16 @@ export class PrintJobsService {
   ) {}
 
   async ingestOrder(order: ingestOrderDto): Promise<void> {
-    const bizId = Number(order.codex_biz_id);
+    const primeBizId = Number(order.prime_biz_id);
+    const codexBizId = Number(order.codex_biz_id);
     const orderUprId = Number(order.upr_id);
     const locationId = Number(order.location.id);
-    const logPayload = { bizId, orderUprId, locationId };
+    const logPayload = { primeBizId, orderUprId, locationId };
 
     let existingJob: PrintJobDocument | null;
     try {
       existingJob = await this.printJobModel
-        .findOne({ bizId, orderUprId })
+        .findOne({ primeBizId, orderUprId })
         .exec();
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
@@ -76,7 +77,10 @@ export class PrintJobsService {
 
     let targets: Printer[];
     try {
-      targets = await this.printersService.findFanoutTargets(bizId, locationId);
+      targets = await this.printersService.findFanoutTargets(
+        primeBizId,
+        locationId,
+      );
     } catch (err) {
       this.eventLogger.logEvent(LogEvents.ORDER_INGESTION, {
         event: 'PRINTER_LOOKUP_FAILED',
@@ -86,7 +90,7 @@ export class PrintJobsService {
       throw new ClientException({
         statusCode: 500,
         errorCode: 'PRINTER_LOOKUP_FAILED',
-        message: `Failed to resolve printers for bizId=${bizId} locationId=${locationId}: ${err.message}`,
+        message: `Failed to resolve printers for primeBizId=${primeBizId} locationId=${locationId}: ${err.message}`,
       });
     }
 
@@ -105,7 +109,8 @@ export class PrintJobsService {
           printType,
           order,
           orderUprId,
-          bizId,
+          primeBizId,
+          codexBizId,
           locationId,
         );
       }
@@ -117,12 +122,13 @@ export class PrintJobsService {
     printType: PrintType,
     order: ingestOrderDto,
     orderUprId: number,
-    bizId: number,
+    primeBizId: number,
+    codexBizId: number,
     locationId: number,
   ): Promise<void> {
     let packed;
     const logPayload = {
-      bizId,
+      primeBizId,
       orderUprId,
       locationId,
       type: printType,
@@ -154,7 +160,8 @@ export class PrintJobsService {
     try {
       doc = await this.printJobModel.create({
         printerId: printer._id,
-        bizId,
+        primeBizId,
+        codexBizId,
         locationId,
         orderUprId,
         type: printType,
@@ -281,7 +288,7 @@ export class PrintJobsService {
       this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
         status: 'delivered',
         type: doc.type,
-        bizId: doc.bizId,
+        primeBizId: doc.primeBizId,
         jobId: String(doc._id),
         printerId: printer._id,
         locationId: doc.locationId,
@@ -330,7 +337,7 @@ export class PrintJobsService {
     const printJobPayload = {
       jobId,
       type: doc.type,
-      bizId: doc.bizId,
+      primeBizId: doc.primeBizId,
       printerId: doc.printerId,
       locationId: doc.locationId,
       orderUprId: doc.orderUprId,
@@ -411,7 +418,7 @@ export class PrintJobsService {
         this.eventLogger.logEvent(LogEvents.PRINT_JOB, {
           status: 'expired',
           type: doc.type,
-          bizId: doc.bizId,
+          primeBizId: doc.primeBizId,
           jobId: String(doc._id),
           printerId: doc.printerId,
           locationId: doc.locationId,

@@ -54,7 +54,7 @@ export class PrintersService {
       try {
         return await this.printerModel.create({
           _id,
-          bizId: dto.bizId,
+          primeBizId: dto.primeBizId,
           locationIds: dto.locationIds,
           label: dto.label,
           printType: dto.printType,
@@ -88,17 +88,19 @@ export class PrintersService {
   }
 
   async list(dto: listPrintersDto): Promise<Printer[]> {
-    if (dto.bizId === undefined && !dto.locationIds?.length) {
+    if (dto.primeBizId === undefined && !dto.locationIds?.length) {
       throw new ClientException({
-        message: 'Either bizId or locationIds must be provided',
+        message: 'Either Prime biz id or location ids must be provided',
         errorCode: 'MISSING_LIST_FILTER',
         statusCode: 400,
       });
     }
 
     try {
-      if (dto.bizId !== undefined) {
-        return await this.printerModel.find({ bizId: dto.bizId }).exec();
+      if (dto.primeBizId !== undefined) {
+        return await this.printerModel
+          .find({ primeBizId: dto.primeBizId })
+          .exec();
       }
       return await this.printerModel
         .find({ locationIds: { $in: dto.locationIds } })
@@ -193,10 +195,13 @@ export class PrintersService {
     return printer;
   }
 
-  findFanoutTargets(bizId: number, locationId: number): Promise<Printer[]> {
+  findFanoutTargets(
+    primeBizId: number,
+    locationId: number,
+  ): Promise<Printer[]> {
     return this.printerModel
       .find({
-        bizId,
+        primeBizId,
         locationIds: locationId,
       })
       .exec();

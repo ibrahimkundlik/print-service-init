@@ -17,7 +17,7 @@ import {
 
 export class createPrinterDto {
   @IsNumber()
-  bizId: number;
+  primeBizId: number;
 
   @IsArray()
   @ArrayNotEmpty()

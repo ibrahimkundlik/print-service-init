@@ -53,7 +53,10 @@ export class PrintJob {
   printerId: string;
 
   @Prop({ type: Number, required: true })
-  bizId: number;
+  primeBizId: number;
+
+  @Prop({ type: Number, required: true })
+  codexBizId: number;
 
   @Prop({ type: Number, required: true })
   locationId: number;
