@@ -43,7 +43,11 @@ export class HtmlToPngService implements OnModuleDestroy {
       this.browserPromise = null;
     }
 
-    this.browserPromise = puppeteer.launch({ headless: true });
+    this.browserPromise = puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
     return this.browserPromise;
   }
 

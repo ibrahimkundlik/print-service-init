@@ -13,6 +13,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
   app.useBodyParser('json');
   app.useBodyParser('urlencoded', { extended: true });
+  app.enableShutdownHooks();
 
   const port = process.env.PORT ? Number(process.env.PORT) : 6000;
   await app.listen(port);

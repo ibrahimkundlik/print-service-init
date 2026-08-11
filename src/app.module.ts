@@ -12,6 +12,7 @@ import { CloudModule } from './Modules/Cloud/cloud.module';
 import { AuthModule } from './Modules/Auth/auth.module';
 import { RedisModule, REDIS_CLIENT } from './Core/Redis/redis.module';
 import { redisCacheStore } from './Core/Cache/redis-cache.store';
+import { HealthModule } from './Modules/Health/health.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { redisCacheStore } from './Core/Cache/redis-cache.store';
 
     ScheduleModule.forRoot(),
     LoggerModule,
+    HealthModule,
     AuthModule,
     PrintersModule,
     RenderModule,
